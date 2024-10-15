@@ -84,6 +84,7 @@ class PerceptNet(nn.Module):
 
         ## Final GDN mixing Gabor information (?)
         outputs = GDNSpatioChromaFreqOrient(
+            # kernel_size=self.config.GDNFINAL_KERNEL_SIZE,
             kernel_size=21,
             strides=1,
             padding="symmetric",
@@ -92,5 +93,71 @@ class PerceptNet(nn.Module):
             normalize_prob=self.config.NORMALIZE_PROB,
             normalize_energy=self.config.NORMALIZE_ENERGY,
         )(outputs, fmean=fmean, theta_mean=theta_mean, **kwargs)
+
+        return outputs
+
+
+class Baseline(nn.Module):
+    """IQA model inspired by the visual system."""
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs,  # Assuming fs = 128 (cpd)
+        **kwargs,
+    ):
+        outputs = GDN(kernel_size=(1, 1), apply_independently=True)(inputs)
+
+        ## Color (ATD) Transformation
+        outputs = nn.Conv(features=3, kernel_size=(1, 1), use_bias=False, name="Color")(
+            outputs
+        )
+        outputs = nn.max_pool(outputs, window_shape=(2, 2), strides=(2, 2))
+
+        ## GDN Star A - T - D [Separated]
+        outputs = GDN(kernel_size=(1, 1), apply_independently=True)(outputs)
+
+        ## Center Surround (DoG)
+        outputs = pad_same_from_kernel_size(
+            outputs, kernel_size=self.config.CS_KERNEL_SIZE, mode="symmetric"
+        )
+        outputs = nn.Conv(
+            features=3,
+            kernel_size=(self.config.CS_KERNEL_SIZE, self.config.CS_KERNEL_SIZE),
+            use_bias=False,
+            padding="VALID",
+        )(outputs)
+        outputs = nn.max_pool(outputs, window_shape=(2, 2), strides=(2, 2))
+
+        ## GDN per channel with mean substraction in T and D (Spatial Gaussian Kernel)
+        outputs = GDN(
+            kernel_size=(
+                self.config.GDNGAUSSIAN_KERNEL_SIZE,
+                self.config.GDNGAUSSIAN_KERNEL_SIZE,
+            ),
+            apply_independently=True,
+            padding="SAME",
+        )(outputs)
+
+        ## GaborLayer per channel with GDN mixing only same-origin-channel information
+        outputs = pad_same_from_kernel_size(
+            outputs, kernel_size=self.config.GABOR_KERNEL_SIZE, mode="symmetric"
+        )
+        outputs = nn.Conv(
+            features=128,
+            kernel_size=(self.config.GABOR_KERNEL_SIZE, self.config.GABOR_KERNEL_SIZE),
+            padding="VALID",
+            use_bias=False,
+        )(outputs)
+
+        ## Final GDN mixing Gabor information (?)
+        outputs = GDN(
+            kernel_size=(
+                self.config.GDNFINAL_KERNEL_SIZE,
+                self.config.GDNFINAL_KERNEL_SIZE,
+            ),
+            apply_independently=False,
+            padding="SAME",
+        )(outputs)
 
         return outputs
