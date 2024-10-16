@@ -2,7 +2,7 @@ from functools import partial
 
 import jax
 from jax import numpy as jnp
-from flax.core import FrozenDict
+from flax.core import FrozenDict, pop
 from flax import struct
 from flax.training import train_state
 from clu import metrics
@@ -23,7 +23,7 @@ class TrainState(train_state.TrainState):
 def create_train_state(module, key, tx, input_shape):
     """Creates the initial `TrainState`."""
     variables = module.init(key, jnp.ones(input_shape))
-    state, params = variables.pop("params")
+    state, params = pop(variables, "params")
     return TrainState.create(
         apply_fn=module.apply,
         params=params,
