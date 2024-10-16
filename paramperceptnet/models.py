@@ -100,6 +100,8 @@ class PerceptNet(nn.Module):
 class Baseline(nn.Module):
     """IQA model inspired by the visual system."""
 
+    config: Any
+
     @nn.compact
     def __call__(
         self,
