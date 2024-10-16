@@ -3,6 +3,14 @@ Parametric enhancement of PerceptNet.
 
 ## Installation
 
+First we need to install `fxlayers`:
+
+```
+git clone https://github.com/Jorgvt/fxlayers.git
+cd fxlayers
+pip install -e .
+```
+
 Currently it is recommended to install from source:
 
 ```
