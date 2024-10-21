@@ -91,19 +91,19 @@ def humanlike_init(params):
         params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
             "gamma_theta_a"
         ]
-    ) * (1 / 20)
+    ) * (1 / 20 * jnp.pi / 180)
     params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
         "gamma_theta_t"
     ] = jnp.ones_like(
         params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
             "gamma_theta_t"
         ]
-    ) * (1 / 20)
+    ) * (1 / 20 * jnp.pi / 180)
     params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
         "gamma_theta_d"
     ] = jnp.ones_like(
         params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
             "gamma_theta_d"
         ]
-    ) * (1 / 20)
+    ) * (1 / 20 * jnp.pi / 180)
     return params_
