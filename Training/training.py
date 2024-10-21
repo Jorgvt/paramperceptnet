@@ -34,12 +34,12 @@ from JaxPlayground.utils.wandb import *
 from paramperceptnet.models import PerceptNet
 from paramperceptnet.constraints import *
 from paramperceptnet.training import *
-from paramperceptnet.config import param_config
+from paramperceptnet.configs import param_config as config
+from paramperceptnet.initialization import humanlike_init
 
-
-_CONFIG = config_flags.DEFINE_config_file("config")
-flags.FLAGS(sys.argv)
-config = _CONFIG.value
+# _CONFIG = config_flags.DEFINE_config_file("config")
+# flags.FLAGS(sys.argv)
+# config = _CONFIG.value
 print(config)
 # %%
 dst_train = TID2008(
@@ -65,10 +65,10 @@ img.shape, img_dist.shape, mos.shape
 # %%
 wandb.init(
     project="PerceptNet_v15",
-    #    name="FinalModel_AllFree",
+    name="FinalModel_GDNFinalOnly_GoodInit",
     job_type="training",
     config=config,
-    mode="disabled",
+    mode="online",
 )
 config = config
 config
@@ -84,7 +84,7 @@ if hasattr(config, "LEARNING_RATE"):
 else:
     tx = optax.adam(config.PEAK_LR)
 state = create_train_state(
-    PerceptNet(), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
+    PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
 state = state.replace(params=clip_param(state.params, "A", a_min=0))
@@ -154,7 +154,7 @@ tx = optax.multi_transform(optimizers, trainable_tree)
 
 # %%
 state = create_train_state(
-    PerceptNet(), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
+    PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
 
