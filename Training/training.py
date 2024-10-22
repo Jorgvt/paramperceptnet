@@ -42,15 +42,15 @@ from paramperceptnet.initialization import humanlike_init
 # config = _CONFIG.value
 print(config)
 # %%
-dst_train = TID2008(
-    "/lustre/ific.uv.es/ml/uv075/Databases/IQA//TID/TID2008/", exclude_imgs=[25]
-)
+# dst_train = TID2008(
+#     "/lustre/ific.uv.es/ml/uv075/Databases/IQA//TID/TID2008/", exclude_imgs=[25]
+# )
 # dst_train = KADIK10K("/lustre/ific.uv.es/ml/uv075/Databases/IQA/KADIK10K/")
-dst_val = TID2013(
-    "/lustre/ific.uv.es/ml/uv075/Databases/IQA//TID/TID2013/", exclude_imgs=[25]
-)
-# dst_train = TID2008("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2008/", exclude_imgs=[25])
-# dst_val = TID2013("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2013/", exclude_imgs=[25])
+# dst_val = TID2013(
+#     "/lustre/ific.uv.es/ml/uv075/Databases/IQA//TID/TID2013/", exclude_imgs=[25]
+# )
+dst_train = TID2008("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2008/", exclude_imgs=[25])
+dst_val = TID2013("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2013/", exclude_imgs=[25])
 # dst_train = TID2008("/media/databases/IQA/TID/TID2008/", exclude_imgs=[25])
 # dst_val = TID2013("/media/databases/IQA/TID/TID2013/", exclude_imgs=[25])
 
@@ -101,24 +101,31 @@ pred, _ = state.apply_fn(
 )
 state = state.replace(state=_)
 
-
 def check_trainable(path):
-    if not config.A_GDNSPATIOFREQORIENT:
-        if ("GDNSpatioChromaFreqOrient_0" in path) and ("A" in path):
+    if "GDNGamma_0" in path:
+        if not config.TRAIN_GDNGAMMA:
             return True
     if "Color" in path:
         if not config.TRAIN_JH:
             return True
+    if "GDN_0" in path:
+        if not config.TRAIN_GDNCOLOR:
+            return True
     if "CenterSurroundLogSigmaK_0" in path:
         if not config.TRAIN_CS:
+            return True
+    if "GDNGaussian_0" in path:
+        if not config.TRAIN_GDNGAUSSIAN:
             return True
     if "Gabor" in "".join(path):
         if not config.TRAIN_GABOR:
             return True
+    if not config.A_GDNSPATIOFREQORIENT:
+        if ("GDNSpatioChromaFreqOrient_0" in path) and ("A" in path):
+            return True
     if "GDNSpatioChromaFreqOrient_0" not in path and config.TRAIN_ONLY_LAST_GDN:
         return True
     return False
-
 
 # %%
 trainable_tree = freeze(
