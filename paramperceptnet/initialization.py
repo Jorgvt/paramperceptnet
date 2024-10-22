@@ -79,7 +79,12 @@ def humanlike_init(params):
     )
 
     ## GDNSpatioChromaFreqOrient
-    # params_["GDNSpatioChromaFreqOrient_0"]["GaussianLayerGamma_0"]["gamma"] = jnp.ones_like(params_["GDNSpatioChromaFreqOrient_0"]["GaussianLayerGamma_0"]["gamma"])*(1./0.1)
+    params_["GDNSpatioChromaFreqOrient_0"]["GaussianLayerGamma_0"]["gamma"] = (
+        jnp.ones_like(
+            params_["GDNSpatioChromaFreqOrient_0"]["GaussianLayerGamma_0"]["gamma"]
+        )
+        * (1.0 / 0.2)
+    )
     # params_["GDNSpatioChromaFreqOrient_0"]["OrientGaussianGamma_0"]["gamma"] = jnp.ones_like(params_["GDNSpatioChromaFreqOrient_0"]["OrientGaussianGamma_0"]["gamma"])*(1/20)
     # params_["GDNSpatioChromaFreqOrient_0"]["bias"] = jnp.tile(jnp.array([0.001, 0.002, 0.0035, 0.01])/100, reps=config.N_ORIENTATIONS*2)
     params_["GDNSpatioChromaFreqOrient_0"]["ChromaFreqOrientGaussianGamma_0"][
