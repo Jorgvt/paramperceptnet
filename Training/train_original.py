@@ -92,15 +92,6 @@ state = state.replace(params=clip_param(state.params, "A", a_min=0))
 # %%
 state.params.keys()
 
-# %%
-pred, _ = state.apply_fn(
-    {"params": state.params, **state.state},
-    jnp.ones(shape=(1, 384, 512, 3)),
-    train=True,
-    mutable=list(state.state.keys()),
-)
-state = state.replace(state=_)
-
 def check_trainable(path):
     if "GDNGamma_0" in path:
         if not config.TRAIN_GDNGAMMA:
@@ -180,20 +171,6 @@ print(param_count, trainable_param_count)
 
 wandb.run.summary["total_parameters"] = param_count
 wandb.run.summary["trainable_parameters"] = trainable_param_count
-
-## Initialization
-params = unfreeze(state.params)
-params = humanlike_init(params)
-state = state.replace(params=freeze(params))
-
-## Recalculate parametric filters
-pred, _ = state.apply_fn(
-    {"params": state.params, **state.state},
-    jnp.ones(shape=(1, 384, 512, 3)),
-    train=True,
-    mutable=list(state.state.keys()),
-)
-state = state.replace(state=_)
 
 # %%
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
