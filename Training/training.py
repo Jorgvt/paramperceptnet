@@ -37,9 +37,9 @@ from paramperceptnet.training import *
 from paramperceptnet.configs import param_config as config
 from paramperceptnet.initialization import humanlike_init
 
-# _CONFIG = config_flags.DEFINE_config_file("config")
-# flags.FLAGS(sys.argv)
-# config = _CONFIG.value
+_CONFIG = config_flags.DEFINE_config_file("config")
+flags.FLAGS(sys.argv)
+config = _CONFIG.value
 print(config)
 # %%
 # dst_train = TID2008(
@@ -65,7 +65,7 @@ img.shape, img_dist.shape, mos.shape
 # %%
 wandb.init(
     project="PerceptNet_v15",
-    name="FinalModel_GDNFinalOnly_GoodInit",
+    name="FinalModel_Freeze_CS_GoodInit",
     job_type="training",
     config=config,
     mode="online",
@@ -102,6 +102,11 @@ pred, _ = state.apply_fn(
 state = state.replace(state=_)
 
 def check_trainable(path):
+    if config.TRAIN_ONLY_B:
+        if "B" in path:
+            return False
+        else:
+            return True
     if "GDNGamma_0" in path:
         if not config.TRAIN_GDNGAMMA:
             return True
