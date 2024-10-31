@@ -1,0 +1,7 @@
+jax
+flax
+optax
+clu
+ml_collections
+fxlayers @ git+https://github.com/Jorgvt/fxlayers.git
+paramperceptnet @ git+https://github.com/Jorgvt/paramperceptnet.git
