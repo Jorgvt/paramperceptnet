@@ -3,7 +3,7 @@ Parametric enhancement of PerceptNet.
 
 ## Installation
 
-We currently provide two options for installing the package and use the model:
+We currently provide two options for installing the package and using the model:
 
 1. Minimal installation: Installs only the required libraries to instantiate, use and train a parametric model.
 
