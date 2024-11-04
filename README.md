@@ -9,7 +9,7 @@ We currently provide two options for installing the package and using the model:
 
 `pip install "paramperceptnet @ git+https://github.com/Jorgvt/paramperceptnet.git"`
 
-2. Full installation: Installs all the libraries required to run the examples in './Examples/'. This includes loading pre-trained weights and a sample dataset from HuggingFace and plotting the results.
+2. Full installation: Installs all the libraries required to run the examples in `./Examples/`. This includes loading pre-trained weights and a sample dataset from HuggingFace and plotting the results.
 
 `pip install "paramperceptnet[examples] @ git+https://github.com/Jorgvt/paramperceptnet"`
 
