@@ -3,20 +3,16 @@ Parametric enhancement of PerceptNet.
 
 ## Installation
 
-We currently provide two requirements files: `requirements.txt` and `requirements_examples.txt`. The first one provides only the necessary libraries to use the model, while the second one provides the libraries to run all the examples in the `Examples/`  folder.
+We currently provide two options for installing the package and use the model:
 
-Choose the one you want to install and:
+1. Minimal installation: Installs only the required libraries to instantiate, use and train a parametric model.
 
-**1. Clone the repository**
-```
-git clone https://github.com/Jorgvt/paramperceptnet.git
-cd paramperceptnet
-```
+`pip install git+https://github.com/Jorgvt/paramperceptnet.git`
 
-**2. Install the requirements**
-```
-pip install -r requirements.txt # or requirements_examples.txt
-```
+2. Full installation: Installs all the libraries required to run the examples in './Examples/'. This includes loading pre-trained weights and a sample dataset from HuggingFace and plotting the results.
+
+`pip install git+https://github.com/Jorgvt/paramperceptnet.git[examples]`
+
 
 ## Pre-trained models
 

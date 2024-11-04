@@ -5,6 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "paramperceptnet"
 version = "0.0.1"
+dependencies = [
+  "jax",
+  "flax",
+  "optax",
+  "clu",
+  "ml_collections",
+  "fxlayers @ git+https://github.com/Jorgvt/fxlayers.git",
+]
+
+[project.optional-dependencies]
+examples = [
+  "Pillow",
+  "requests",
+  "huggingface_hub",
+  "datasets",
+  "matplotlib",
+  "safetensors",
+  "tensorstore<0.1.67"
+]
 
 [tool.setuptools]
 packages = ["paramperceptnet"]
