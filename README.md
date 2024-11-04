@@ -7,7 +7,7 @@ We currently provide two options for installing the package and use the model:
 
 1. Minimal installation: Installs only the required libraries to instantiate, use and train a parametric model.
 
-`pip install "paramperceptnet git+https://github.com/Jorgvt/paramperceptnet.git"`
+`pip install "paramperceptnet @ git+https://github.com/Jorgvt/paramperceptnet.git"`
 
 2. Full installation: Installs all the libraries required to run the examples in './Examples/'. This includes loading pre-trained weights and a sample dataset from HuggingFace and plotting the results.
 
