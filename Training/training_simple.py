@@ -57,10 +57,11 @@ dst_train = load_dataset("Jorgvt/TID2008", trust_remote_code=True)
 dst_train = dst_train.with_format("jax")
 dst_train = dst_train["train"]
 
-# dst_val = load_dataset("Jorgvt/TID2013", trust_remote_code=True)
-# dst_val = dst_val.with_format("jax")
-# dst_val = dst_val["val"]
+dst_val = load_dataset("Jorgvt/TID2013", trust_remote_code=True)
+dst_val = dst_val.with_format("jax")
+dst_val = dst_val["train"]
 
+os.exit()
 ## Define a `TrainState`
 tx = optax.adam(config.LEARNING_RATE)
 state = create_train_state(
@@ -182,14 +183,14 @@ for epoch in range(config.EPOCHS):
     state = state.replace(metrics=state.metrics.empty())
 
     ## Evaluation
-    # for batch in dst_val.iter(batch_size=config.BATCH_SIZE): 
-    #     batch = (batch["reference"], batch["distorted"], batch["mos"])
-    #     state = compute_metrics(state=state, batch=batch)
-    #     break
-    #
-    # for name, value in state.metrics.compute().items():
-    #     metrics_history[f"val_{name}"].append(value)
-    # state = state.replace(metrics=state.metrics.empty())
+    for batch in dst_val.iter(batch_size=config.BATCH_SIZE): 
+        batch = (batch["reference"], batch["distorted"], batch["mos"])
+        state = compute_metrics(state=state, batch=batch)
+        break
+
+    for name, value in state.metrics.compute().items():
+        metrics_history[f"val_{name}"].append(value)
+    state = state.replace(metrics=state.metrics.empty())
 
     ## Checkpointing
     if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
