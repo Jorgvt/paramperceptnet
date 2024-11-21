@@ -57,11 +57,10 @@ dst_train = load_dataset("Jorgvt/TID2008", trust_remote_code=True)
 dst_train = dst_train.with_format("jax")
 dst_train = dst_train["train"]
 
-dst_val = load_dataset("Jorgvt/TID2013", trust_remote_code=True)
-dst_val = dst_val.with_format("jax")
-dst_val = dst_val["train"]
+# dst_val = load_dataset("Jorgvt/TID2013", trust_remote_code=True)
+# dst_val = dst_val.with_format("jax")
+# dst_val = dst_val["train"]
 
-os.exit()
 ## Define a `TrainState`
 tx = optax.adam(config.LEARNING_RATE)
 state = create_train_state(
@@ -173,7 +172,6 @@ for epoch in range(config.EPOCHS):
         state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
         state = state.replace(params=clip_param(state.params, "A", a_min=0))
         state = state.replace(params=clip_param(state.params, "K", a_min=1 + 1e-5))
-        break
 
     ## Log the metrics
     for name, value in state.metrics.compute().items():
@@ -183,26 +181,28 @@ for epoch in range(config.EPOCHS):
     state = state.replace(metrics=state.metrics.empty())
 
     ## Evaluation
-    for batch in dst_val.iter(batch_size=config.BATCH_SIZE): 
-        batch = (batch["reference"], batch["distorted"], batch["mos"])
-        state = compute_metrics(state=state, batch=batch)
-        break
+    # for batch in dst_val.iter(batch_size=config.BATCH_SIZE): 
+    #     batch = (batch["reference"], batch["distorted"], batch["mos"])
+    #     state = compute_metrics(state=state, batch=batch)
 
-    for name, value in state.metrics.compute().items():
-        metrics_history[f"val_{name}"].append(value)
-    state = state.replace(metrics=state.metrics.empty())
+    # for name, value in state.metrics.compute().items():
+    #     metrics_history[f"val_{name}"].append(value)
+    # state = state.replace(metrics=state.metrics.empty())
 
-    ## Checkpointing
-    if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
-        orbax_checkpointer.save(
-            "model-best",
-            state,
-            save_args=save_args,
-            force=True,
-        ) 
+    # ## Checkpointing
+    # if metrics_history["val_loss"][-1] <= min(metrics_history["val_loss"]):
+    #     orbax_checkpointer.save(
+    #         "model-best",
+    #         state,
+    #         save_args=save_args,
+    #         force=True,
+    #     ) 
 
+    # print(
+    #     f'Epoch {epoch} -> [Train] Loss: {metrics_history["train_loss"][-1]} [Val] Loss: {metrics_history["val_loss"][-1]}'
+    # )
     print(
-        f'Epoch {epoch} -> [Train] Loss: {metrics_history["train_loss"][-1]} [Val] Loss: {metrics_history["val_loss"][-1]}'
+        f'Epoch {epoch} -> [Train] Loss: {metrics_history["train_loss"][-1]}'
     )
 
 # Save the final model as well in case we want to keep training from it or whatever:
