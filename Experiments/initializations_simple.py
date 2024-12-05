@@ -70,7 +70,7 @@ dst_train_rdy = dst_train.dataset.shuffle(
 ).batch(config.BATCH_SIZE, drop_remainder=True)
 dst_val_rdy = dst_val.dataset.batch(config.BATCH_SIZE, drop_remainder=True)
 
-if args["model"] == "parametric":
+if args.model == "parametric":
     from paramperceptnet.models import PerceptNet
     ## Evaluate function
     @jax.jit
@@ -78,7 +78,7 @@ if args["model"] == "parametric":
         pred = state.apply_fn({"params": state.params, **state.state}, img, train=False)
         pred_dist = state.apply_fn({"params": state.params, **state.state}, img_dist, train=False)
         return ((pred-pred_dist)**2).mean(axis=(1,2,3))**(1/2)
-elif args["model"] == "non-parametric":
+elif args.model == "non-parametric":
     from paramperceptnet.models import Baseline as PerceptNet
     ## Evaluate function
     @jax.jit
@@ -99,7 +99,7 @@ def eval_dst(state, dst):
 
 ## Loop
 N = args.N
-seeds = random.randint(key=random.PRNGKey(42), shape=(N,), minval=0, maxval=1000)
+seeds = jnp.linspace(0, 10000, num=N, dtype=int)
 results = {"seed":[], "pearson":[]}
 for seed in tqdm(seeds):
     state = create_train_state(
@@ -121,4 +121,4 @@ for seed in tqdm(seeds):
     results['pearson'].append(res)
 
 df = pd.DataFrame(results)
-df.to_csv(f"{args.path}/{args['model']}.csv", index=False)
+df.to_csv(f"{args.path}/{args.model}.csv", index=False)
