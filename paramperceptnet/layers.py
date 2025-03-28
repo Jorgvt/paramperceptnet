@@ -17,8 +17,8 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
     strides: int = 1
     padding: str = "SAME"
     bias_init: Callable = nn.initializers.zeros_init()
-    n_scales: Sequence[int] = jnp.array([4, 2, 2], dtype=jnp.int32)
-    n_orientations: Sequence[int] = jnp.array([8, 8, 8], dtype=jnp.int32)
+    n_scales: Sequence[int] = (4, 2, 2)
+    n_orientations: Sequence[int] = (8, 8, 8)
 
     @nn.compact
     def __call__(
@@ -230,7 +230,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
     xmean: float = 0.5
     ymean: float = 0.5
     fs: float = 1  # Sampling frequency
-    phase = jnp.array([0.0, jnp.pi / 2.0])
+    phase: Sequence[float] = (0., jnp.pi/2.)
 
     normalize_prob: bool = True
     normalize_energy: bool = False
@@ -247,10 +247,11 @@ class GaborLayerGammaHumanLike_(nn.Module):
     ):
         total_scales = jnp.sum(jnp.array(self.n_scales))
         total_orientations = jnp.sum(jnp.array(self.n_orientations))
+        phase = jnp.array(self.phase)
         features = jnp.sum(
             jnp.array(
                 [
-                    s * o * len(self.phase)
+                    s * o * len(phase)
                     for s, o in zip(self.n_scales, self.n_orientations)
                 ]
             )
@@ -397,7 +398,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
                 freq_a,
                 theta_a,
                 sigma_theta_a,
-                self.phase,
+                phase,
                 1,
                 self.normalize_prob,
                 self.normalize_energy,
@@ -483,7 +484,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
                 freq_t,
                 theta_t,
                 sigma_theta_t,
-                self.phase,
+                phase,
                 1,
                 self.normalize_prob,
                 self.normalize_energy,
@@ -569,7 +570,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
                 freq_d,
                 theta_d,
                 sigma_theta_d,
-                self.phase,
+                phase,
                 1,
                 self.normalize_prob,
                 self.normalize_energy,
@@ -751,7 +752,7 @@ class GaborLayerGammaHumanLike_(nn.Module):
             params["freq"],
             params["theta"],
             params["sigma_theta"],
-            self.phase,
+            phase,
             1,
             self.normalize_prob,
             self.normalize_energy,
