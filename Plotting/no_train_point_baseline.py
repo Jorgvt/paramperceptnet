@@ -21,7 +21,7 @@ dst_val = dst_val.with_format("jax")
 dst_val = dst_val["train"]
 
 ## Set up the required ids
-ids = ["afr86ups", # No Param
+ids = ["rlmp4ntk", # No Param
        #"i8kkltwu", # TrainAll_GoodInit
        #"csrhdpbd", # OnlyB_GoodInit
     ]
