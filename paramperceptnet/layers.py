@@ -9,6 +9,17 @@ from fxlayers.layers import *
 from fxlayers.layers import GaussianLayerGamma
 from fxlayers.initializers import *
 
+class LinearScaling(nn.Module):
+    """Linear scaling to be applied channel-wise.
+       It can be useful to separate interactions."""
+    init: Callable = nn.initializers.ones_init()
+
+    @nn.compact
+    def __call__(self,
+                 inputs, # (B, H, w, C)
+                 **kwargs,
+                 ):
+        return self.param("B", self.init, (inputs.shape[-1],))*inputs
 
 class ChromaFreqOrientGaussianGamma(nn.Module):
     """(1D) Gaussian interaction between gamma_fuencies and orientations optimizing gamma = 1/sigma instead of sigma."""
@@ -209,8 +220,7 @@ class GDNSpatioChromaFreqOrient(nn.Module):
         #     inputs_star.value = (inputs_star.value + jnp.quantile(jnp.abs(inputs), q=0.95, axis=(0,1,2)))/2
         # return coef * inputs / (jnp.clip(denom+bias, a_min=1e-5)**self.epsilon + self.eps)
         return (
-            self.param("B", nn.initializers.ones_init(), (outputs.shape[-1],))
-            * inputs
+            inputs
             / (jnp.clip(outputs + bias, a_min=1e-5) ** self.epsilon + self.eps)
         )
 

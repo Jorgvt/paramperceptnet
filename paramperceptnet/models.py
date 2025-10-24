@@ -94,6 +94,9 @@ class PerceptNet(nn.Module):
             normalize_energy=self.config.NORMALIZE_ENERGY,
         )(outputs, fmean=fmean, theta_mean=theta_mean, **kwargs)
 
+        ## Final Linear Scaling
+        outputs = LinearScaling()(outputs)
+
         return outputs
 
 
