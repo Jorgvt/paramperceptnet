@@ -30,6 +30,7 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
     bias_init: Callable = nn.initializers.zeros_init()
     n_scales: Sequence[int] = (4, 2, 2)
     n_orientations: Sequence[int] = (8, 8, 8)
+    normalize_sum: bool = False
 
     @nn.compact
     def __call__(
@@ -37,8 +38,14 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
         inputs,
         fmean,
         theta_mean,
+        train=False,
         **kwargs,
     ):
+        is_initialized = self.has_variable("precalc_filter", "kernel")
+        precalc_filters = self.variable("precalc_filter",
+                                        "kernel",
+                                        jnp.zeros,
+                                        (1,1,len(fmean), len(theta_mean)))
         gamma_f_a = self.param(
             "gamma_f_a",
             k_array(1 / 0.4, arr=jnp.array([2.0, 4.0, 8.0, 16.0])),
@@ -83,40 +90,57 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
             bias = 0.0
         # n_groups = inputs.shape[-1] // len(fmean)
 
-        ## Repeat gammas
-        gamma_f = jnp.concatenate(
-            [
-                jnp.tile(f, reps=len(t))
-                for f, t in zip(
-                    [gamma_f_a, gamma_f_t, gamma_f_d],
-                    [gamma_theta_a, gamma_theta_t, gamma_theta_d],
-                )
-            ]
-        )
-        gamma_f = jnp.tile(gamma_f, reps=2)
-        gamma_theta = jnp.concatenate(
-            [
-                jnp.tile(t, reps=len(f))
-                for f, t in zip(
-                    [gamma_f_a, gamma_f_t, gamma_f_d],
-                    [gamma_theta_a, gamma_theta_t, gamma_theta_d],
-                )
-            ]
-        )
-        gamma_theta = jnp.tile(gamma_theta, reps=2)
+        if is_initialized and not train: 
+            kernel = precalc_filters.value
+        elif is_initialized and train: 
 
-        ## Repeating
-        cc = jnp.array([0, 1, 2])
-        cc = jnp.repeat(
-            cc, repeats=jnp.array([64, 32, 32]), total_repeat_length=len(fmean)
-        )
+            ## Repeat gammas
 
-        kernel = jax.vmap(
-            self.gaussian,
-            in_axes=(None, None, 0, 0, 0, 0, None, 0, None, None),
-            out_axes=1,
-        )(fmean, theta_mean, fmean, theta_mean, gamma_f, gamma_theta, cc, cc, H_cc, 1)
-        kernel = kernel[None, None, :, :]
+            gamma_f = jnp.concatenate(
+                [
+                    jnp.tile(jnp.tile(f, reps=len(t)), reps=2)
+                    for f, t in zip(
+                        [gamma_f_a, gamma_f_t, gamma_f_d],
+                        [gamma_theta_a, gamma_theta_t, gamma_theta_d],
+                    )
+                ]
+            )
+
+            gamma_theta = jnp.concatenate(
+                [
+                    jnp.tile(jnp.repeat(t, repeats=len(f)), reps=2)
+                    for f, t in zip(
+                        [gamma_f_a, gamma_f_t, gamma_f_d],
+                        [gamma_theta_a, gamma_theta_t, gamma_theta_d],
+                    )
+                ]
+            )
+
+            ## Repeating
+            cc = jnp.array([0, 1, 2])
+            cc = jnp.repeat(
+                cc, repeats=jnp.array([64, 32, 32]), total_repeat_length=len(fmean)
+            )
+            ## Phase index
+            pp = jnp.array([0,1])
+            pp = jnp.concatenate([
+                jnp.repeat(pp, repeats=jnp.array([32,32])),
+                jnp.repeat(pp, repeats=jnp.array([16,16])),
+                jnp.repeat(pp, repeats=jnp.array([16,16])),
+            ])
+            H_pp = jnp.eye(2)
+
+            kernel = jax.vmap(
+                self.gaussian,
+                in_axes=(None, None, 0, 0, 0, 0, None, 0, None, None, 0, None, None, None),
+                out_axes=1,
+            )(fmean, theta_mean, fmean, theta_mean, gamma_f, gamma_theta, cc, cc, H_cc, pp, pp, H_pp, 1, self.normalize_sum)
+            kernel = kernel[None, None, :, :]
+            A_sum = jnp.where(self.normalize_sum, 1/kernel.sum(axis=2, keepdims=True), 1.)
+            kernel = A_sum*kernel
+            precalc_filters.value = kernel
+        else:
+            kernel = precalc_filters.value
 
         ## Add the batch dim if the input is a single element
         if jnp.ndim(inputs) < 4:
@@ -138,13 +162,31 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
 
     @staticmethod
     def gaussian(
-        f, theta, fmean, theta_mean, gamma_f, gamma_theta, c_1, c_2, H_cc, A=1
+        f, theta, fmean, theta_mean, gamma_f, gamma_theta, c_1, c_2, H_cc, p_1, p_2, H_pp, A=1, norm_sum=False
     ):
+        def diff_ang(ang1, ang2):
+            return jnp.min(
+                jnp.array([
+                jnp.abs(ang1-ang2),
+                jnp.abs(ang1+jnp.pi-ang2),
+                jnp.abs(ang1-ang2-jnp.pi),
+                jnp.abs(ang1+2*jnp.pi-ang2),
+                jnp.abs(ang1-ang2-2*jnp.pi),
+                ]), axis=0
+            )
+        g_f = jnp.exp(-((gamma_f**2) * (f - fmean) ** 2) / (2))
+        g_theta =  jnp.exp(-((gamma_theta**2) * diff_ang(theta, theta_mean) ** 2) / (2))
+        # A_f = jnp.where(norm_sum, 1/g_f.sum(), 1.)
+        # A_theta = jnp.where(norm_sum, 1/g_theta.sum(), 1.)
+        A_f = 1.
+        A_theta = 1.
+
         return (
             H_cc[c_1, c_2]
+            * H_pp[p_1, p_2]
             * A
-            * jnp.exp(-((gamma_f**2) * (f - fmean) ** 2) / (2))
-            * jnp.exp(-((gamma_theta**2) * (theta - theta_mean) ** 2) / (2))
+            * A_f * g_f
+            * A_theta * g_theta
         )
 
 
@@ -164,6 +206,7 @@ class GDNSpatioChromaFreqOrient(nn.Module):
     eps: float = 1e-6  # Numerical stability in the denominator
     normalize_prob: bool = False
     normalize_energy: bool = True
+    normalize_sum: bool = False
 
     @nn.compact
     def __call__(
@@ -193,10 +236,11 @@ class GDNSpatioChromaFreqOrient(nn.Module):
             ymean=self.kernel_size / self.fs / 2,
             normalize_prob=self.normalize_prob,
             normalize_energy=self.normalize_energy,
+            normalize_sum=self.normalize_sum,
             use_bias=False,
             feature_group_count=c,
         )
-        FOG = ChromaFreqOrientGaussianGamma()
+        FOG = ChromaFreqOrientGaussianGamma(normalize_sum=self.normalize_sum)
         outputs = GL(
             pad_same_from_kernel_size(
                 inputs, kernel_size=self.kernel_size, mode=self.padding
@@ -204,7 +248,7 @@ class GDNSpatioChromaFreqOrient(nn.Module):
             ** self.alpha,
             train=train,
         )  # /(self.kernel_size**2)
-        outputs = FOG(outputs, fmean=fmean, theta_mean=theta_mean)
+        outputs = FOG(outputs, fmean=fmean, theta_mean=theta_mean, train=train)
 
         ## Coef
         # coef = GL(inputs_star_**self.alpha, train=train)#/(self.kernel_size**2)
@@ -619,18 +663,16 @@ class GaborLayerGammaHumanLike_(nn.Module):
         outputs = jnp.transpose(outputs, (0, 2, 3, 1))
         fmean = jnp.concatenate(
             [
-                jnp.tile(f, reps=len(t))
+                jnp.tile(jnp.tile(f, reps=len(t)), reps=len(self.phase))
                 for f, t in zip([freq_a, freq_t, freq_d], [theta_a, theta_t, theta_d])
             ]
         )
-        fmean = jnp.tile(fmean, reps=2)
         theta_mean = jnp.concatenate(
             [
-                jnp.tile(t, reps=len(f))
+                jnp.tile(jnp.repeat(t, repeats=len(f)), reps=len(self.phase))
                 for f, t in zip([freq_a, freq_t, freq_d], [theta_a, theta_t, theta_d])
             ]
         )
-        theta_mean = jnp.tile(theta_mean, reps=2)
 
         if not had_batch:
             outputs = outputs[0]
