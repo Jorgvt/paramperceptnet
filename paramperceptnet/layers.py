@@ -6,7 +6,7 @@ import flax.linen as nn
 from einops import rearrange, repeat
 
 # from fxlayers.layers import *
-from fxlayers.layers import GaussianLayerGamma
+from fxlayers.layers import GaussianLayerGamma, pad_same_from_kernel_size
 from fxlayers.initializers import *
 
 class LinearScaling(nn.Module):
