@@ -5,7 +5,7 @@ from jax import lax, numpy as jnp
 import flax.linen as nn
 from einops import rearrange, repeat
 
-from fxlayers.layers import *
+# from fxlayers.layers import *
 from fxlayers.layers import GaussianLayerGamma
 from fxlayers.initializers import *
 
