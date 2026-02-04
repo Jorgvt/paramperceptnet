@@ -1,4 +1,5 @@
 import os
+import argparse
 from tqdm.auto import tqdm
 
 import pandas as pd
@@ -7,12 +8,19 @@ import torch
 from piq_metrics import get_all_piq_full_reference_metrics
 from iqadatasets.datasets import TID2008
 
+parser = argparse.ArgumentParser(description="Benchmark PIQ metrics on TID2008")
+parser.add_argument("--data_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality/", help="Path to the dataset root")
+parser.add_argument("--batch_size", type=int, default=64, help="Batch size for the dataset")
+parser.add_argument("--name", type=str, default=None, help="Name for the results CSV file (defaults to data_path basename)")
+args = parser.parse_args()
+
 ## Fetch all the full reference metrics from PIQ
 metrics = get_all_piq_full_reference_metrics(reduction="none")
 
 ## Prepare the dataset
-data_path = "/media/disk/vista/BBDD_video_image/Image_Quality/"
-BATCH_SIZE = 64
+data_path = args.data_path
+BATCH_SIZE = args.batch_size
+name = args.name if args.name is not None else os.path.basename(data_path.rstrip(os.sep))
 
 dataset = TID2008(path=os.path.join(data_path, "TID", "TID2008"))
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
@@ -37,3 +45,4 @@ for name, metric in tqdm(metrics.items(), desc="Metrics", leave=True):
 
 print(results)
 results = pd.DataFrame(results)
+results.to_csv(f"{name}.csv", index=False)
