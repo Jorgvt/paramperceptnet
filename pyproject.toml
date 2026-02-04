@@ -27,3 +27,13 @@ examples = [
 
 [tool.setuptools]
 packages = ["paramperceptnet"]
+
+[tool.uv.sources]
+iqadatasets = { git = "https://github.com/Jorgvt/iqadatasets.git" }
+
+[dependency-groups]
+test = [
+    "iqadatasets",
+    "piq>=0.8.0",
+    "tqdm>=4.67.3",
+]
