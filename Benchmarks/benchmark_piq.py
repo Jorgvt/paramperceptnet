@@ -22,6 +22,10 @@ data_path = args.data_path
 BATCH_SIZE = args.batch_size
 name = args.name if args.name is not None else os.path.basename(data_path.rstrip(os.sep))
 
+print(f"Data path: {data_path}")
+print(f"Batch Size: {BATCH_SIZE}")
+print(f"Name: {name}")
+
 dataset = TID2008(path=data_path)
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
 
