@@ -20,7 +20,7 @@ metrics = get_all_piq_full_reference_metrics(reduction="none")
 ## Prepare the dataset
 data_path = args.data_path
 BATCH_SIZE = args.batch_size
-name = args.name if args.name is not None else os.path.basename(data_path.rstrip(os.sep))
+file_name = args.name if args.name is not None else os.path.basename(data_path.rstrip(os.sep))
 
 dataset = TID2008(path=os.path.join(data_path, "TID", "TID2008"))
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
@@ -45,4 +45,4 @@ for name, metric in tqdm(metrics.items(), desc="Metrics", leave=True):
 
 print(results)
 results = pd.DataFrame(results)
-results.to_csv(f"{name}.csv", index=False)
+results.to_csv(f"{file_name}.csv", index=False)
