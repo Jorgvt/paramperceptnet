@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser(description="Benchmark PIQ metrics on TID2008")
 parser.add_argument("--data_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality/", help="Path to the dataset root")
 parser.add_argument("--batch_size", type=int, default=64, help="Batch size for the dataset")
 parser.add_argument("--name", type=str, default=None, help="Name for the results CSV file (defaults to data_path basename)")
+parser.add_argument("--dst", type=str, default=None, help="Dataset that we want to calculate")
 args = parser.parse_args()
 
 ## Fetch all the full reference metrics from PIQ
@@ -21,12 +22,14 @@ metrics = get_all_piq_full_reference_metrics(reduction="none")
 data_path = args.data_path
 BATCH_SIZE = args.batch_size
 file_name = args.name if args.name is not None else os.path.basename(data_path.rstrip(os.sep))
+dst_name = args.dst
 
 print(f"Data path: {data_path}")
 print(f"Batch Size: {BATCH_SIZE}")
 print(f"Name: {file_name}")
 
 dataset = TID2008(path=data_path)
+dataset = eval(f"{dst_name}(path={data_path}")
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
 
 
