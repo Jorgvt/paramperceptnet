@@ -24,7 +24,7 @@ file_name = args.name if args.name is not None else os.path.basename(data_path.r
 
 print(f"Data path: {data_path}")
 print(f"Batch Size: {BATCH_SIZE}")
-print(f"Name: {name}")
+print(f"Name: {file_name}")
 
 dataset = TID2008(path=data_path)
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
