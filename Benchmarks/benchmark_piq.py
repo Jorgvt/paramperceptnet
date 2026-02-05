@@ -28,7 +28,6 @@ print(f"Data path: {data_path}")
 print(f"Batch Size: {BATCH_SIZE}")
 print(f"Name: {file_name}")
 
-# dataset = TID2008(path=data_path)
 dataset = eval(f"{dst_name}(path='{data_path}')")
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
 
