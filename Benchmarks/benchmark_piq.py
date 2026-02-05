@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 
 from piq_metrics import get_all_piq_full_reference_metrics
-from iqadatasets.datasets import TID2008
+from iqadatasets.datasets import *
 
 parser = argparse.ArgumentParser(description="Benchmark PIQ metrics on TID2008")
 parser.add_argument("--data_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality/", help="Path to the dataset root")
@@ -28,8 +28,8 @@ print(f"Data path: {data_path}")
 print(f"Batch Size: {BATCH_SIZE}")
 print(f"Name: {file_name}")
 
-dataset = TID2008(path=data_path)
-dataset = eval(f"{dst_name}(path={data_path}")
+# dataset = TID2008(path=data_path)
+dataset = eval(f"{dst_name}(path='{data_path}')")
 dst_rdy = dataset.dataset.batch(BATCH_SIZE).prefetch(1)
 
 
