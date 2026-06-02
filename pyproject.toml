@@ -12,6 +12,7 @@ dependencies = [
   "clu",
   "ml_collections",
   "fxlayers @ git+https://github.com/Jorgvt/fxlayers.git",
+  "safetensors>=0.7.0",
 ]
 
 [project.optional-dependencies]
