@@ -1,4 +1,5 @@
 from typing import Sequence, Union, Callable
+import numpy as np
 
 import jax
 from jax import lax, numpy as jnp
@@ -124,9 +125,9 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
             ## Phase index
             pp = jnp.array([0,1])
             pp = jnp.concatenate([
-                jnp.repeat(pp, repeats=(32,32)),
-                jnp.repeat(pp, repeats=(16,16)),
-                jnp.repeat(pp, repeats=(16,16)),
+                jnp.repeat(pp, repeats=np.array([32,32])),
+                jnp.repeat(pp, repeats=np.array([16,16])),
+                jnp.repeat(pp, repeats=np.array([16,16])),
             ])
             H_pp = jnp.eye(2)
 
