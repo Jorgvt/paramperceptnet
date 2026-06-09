@@ -124,9 +124,9 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
             ## Phase index
             pp = jnp.array([0,1])
             pp = jnp.concatenate([
-                jnp.repeat(pp, repeats=jnp.array([32,32])),
-                jnp.repeat(pp, repeats=jnp.array([16,16])),
-                jnp.repeat(pp, repeats=jnp.array([16,16])),
+                jnp.repeat(pp, repeats=(32,32)),
+                jnp.repeat(pp, repeats=(16,16)),
+                jnp.repeat(pp, repeats=(16,16)),
             ])
             H_pp = jnp.eye(2)
 
