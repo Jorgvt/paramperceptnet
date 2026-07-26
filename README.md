@@ -21,7 +21,28 @@ We have uploaded a couple of pre-trained models to HuggingFace:
 1. Parametric Fully Trained: (https://huggingface.co/Jorgvt/ppnet-fully-trained)
 2. Parametric Bio-Fitted: (https://huggingface.co/Jorgvt/ppnet-bio-fitted)
 
-Instructions on how to load them can be found in their Model Card and in the examples provided in `./Examples/`.
+You can easily load any of these pretrained models with a few lines of code:
+
+```python
+from paramperceptnet.pretrained import load_param_pretrained
+
+# Load the model and its associated parameters/state
+model, variables = load_param_pretrained("ppnet-bio-fitted")
+state = variables["state"]
+params = variables["params"]
+```
+
+For baseline models (e.g., `Jorgvt/ppnet-baseline`), use the baseline loader:
+
+```python
+from paramperceptnet.pretrained import load_baseline_pretrained
+
+model, variables = load_baseline_pretrained("ppnet-baseline")
+params = variables["params"]
+```
+
+More details on how to load them can be found in their Model Cards and in the examples provided in `./Examples/`.
+
 
 ## Examples
 

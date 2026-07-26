@@ -12,6 +12,7 @@ dependencies = [
   "clu",
   "ml_collections",
   "fxlayers @ git+https://github.com/Jorgvt/fxlayers.git",
+  "safetensors>=0.7.0",
 ]
 
 [project.optional-dependencies]
@@ -27,3 +28,13 @@ examples = [
 
 [tool.setuptools]
 packages = ["paramperceptnet"]
+
+[tool.uv.sources]
+iqadatasets = { git = "https://github.com/Jorgvt/iqadatasets.git" }
+
+[dependency-groups]
+test = [
+    "iqadatasets",
+    "piq>=0.8.0",
+    "tqdm>=4.67.3",
+]

@@ -17,27 +17,19 @@ import optax
 import orbax.checkpoint
 from ml_collections import ConfigDict, config_flags
 
-from safetensors.flax import load_file
-from huggingface_hub import hf_hub_download
 from datasets import load_dataset
 
 from paramperceptnet.models import PerceptNet
 from paramperceptnet.constraints import *
 from paramperceptnet.training import *
+from paramperceptnet.pretrained import load_param_pretrained
 
 
 ## Load pretrained model
 model_name = "ppnet-bio-fitted"
 # model_name = "ppnet-fully-trained"
-config_path = hf_hub_download(repo_id=f"Jorgvt/{model_name}",
-                              filename="config.json")
-with open(config_path, "r") as f:
-    config = ConfigDict(json.load(f))
-
-weights_path = hf_hub_download(repo_id=f"Jorgvt/{model_name}",
-                               filename="weights.safetensors")
-variables = load_file(weights_path)
-variables = flax.traverse_util.unflatten_dict(variables, sep=".")
+model, variables = load_param_pretrained(model_name)
+config = model.config
 state_ = variables["state"]
 params_ = variables["params"]
 
@@ -53,7 +45,7 @@ dst_val = dst_val["train"]
 ## Define a `TrainState`
 tx = optax.adam(config.LEARNING_RATE)
 state = create_train_state(
-    PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
+    model, random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
 state = state.replace(params=clip_param(state.params, "A", a_min=0))
@@ -100,7 +92,7 @@ optimizers = {
 tx = optax.multi_transform(optimizers, trainable_tree)
 
 state = create_train_state(
-    PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
+    model, random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
 state = state.replace(params=clip_param(state.params, "A", a_min=0))
