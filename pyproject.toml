@@ -5,14 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "paramperceptnet"
 version = "0.0.1"
+requires-python = ">=3.10, <3.14"
 dependencies = [
-  "jax",
+  "jax; sys_platform != 'linux'",
+  "jax[cuda12]; sys_platform == 'linux'",
+  "jaxlib",
   "flax",
   "optax",
   "clu",
   "ml_collections",
   "fxlayers @ git+https://github.com/Jorgvt/fxlayers.git",
   "safetensors>=0.7.0",
+  "iqadatasets @ git+https://github.com/Jorgvt/iqadatasets.git",
+  "JaxPlayground @ git+https://github.com/Jorgvt/JaxPlayground.git",
+  "wandb",
+  "einops",
+  "orbax-checkpoint>=0.3.0,<0.5",
+  "numpy>=2.2.6",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +34,9 @@ examples = [
   "safetensors",
   "tensorstore<0.1.67"
 ]
+
+[tool.uv]
+environments = ["sys_platform != 'win32'"]
 
 [tool.setuptools]
 packages = ["paramperceptnet"]
