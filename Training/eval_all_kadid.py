@@ -133,6 +133,7 @@ def main():
     parser.add_argument("--tid08_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2008/", help="Path to TID2008 dataset")
     parser.add_argument("--tid13_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2013/", help="Path to TID2013 dataset")
     parser.add_argument("--kadid_path", type=str, default="/media/disk/vista/BBDD_video_image/Image_Quality/KADIK10K", help="Path to KADID10K dataset")
+    parser.add_argument("--all_checkpoints", action="store_true", help="Evaluate all checkpoints (model-0, model-best, model-final) instead of only model-best")
     args = parser.parse_args()
 
     # 1. Load Datasets
@@ -162,85 +163,78 @@ def main():
         run_name = run.name
         job_type = run.job_type or ""
         
-        # Check if trained on KADID
-        dataset_name = run.config.get("dataset", "")
-        is_kadid = "kadid" in str(dataset_name).lower() or "kadik" in str(dataset_name).lower() or "kadid" in str(job_type).lower() or "kadid" in run_name.lower()
-        
-        if not is_kadid:
-            # Double check config in case it is saved in config object
-            cfg_obj = run.config.get("config", {})
-            if isinstance(cfg_obj, dict):
-                if "kadid" in str(cfg_obj.get("dataset", "")).lower() or "kadik" in str(cfg_obj.get("dataset", "")).lower():
-                    is_kadid = True
-                    
-        if not is_kadid:
+        # Check if job type is training-kadid10k
+        if job_type.lower() != "training-kadid10k":
             continue
             
-        # Determine checkpoint path and download/locate it
-        checkpoint_dir = None
-        
-        # First, try finding model-best files on W&B
-        files = [f for f in run.files() if f.name.startswith("model-best/")]
-        if len(files) > 0:
-            checkpoint_dir = f"wandb_checkpoints/{run_id}/model-best"
-            print(f"\nDownloading checkpoint for KADID run: {run_name} (ID: {run_id}) from W&B...")
-            for f in files:
-                f.download(root=f"wandb_checkpoints/{run_id}", replace=True)
-        else:
-            # Fall back to local search in case files were not synced to W&B
-            local_runs = glob.glob(f"wandb/run-*-{run_id}/files/model-best")
-            if len(local_runs) > 0:
-                checkpoint_dir = local_runs[0]
-                print(f"\nNo checkpoint on W&B for run {run_name} (ID: {run_id}), using local copy at: {checkpoint_dir}")
-                
-        if not checkpoint_dir:
-            # If no checkpoint found, skip
-            continue
+        # Evaluate each checkpoint type
+        checkpoint_types = ["model-0", "model-best", "model-final"] if args.all_checkpoints else ["model-best"]
+        for ckpt_name in checkpoint_types:
+            checkpoint_dir = None
             
-        try:
-            # Check if this is the convolutional Baseline or PerceptNet
-            is_baseline = "baseline" in run_name.lower() or "baseline" in job_type.lower()
-            
-            # Build corresponding dummy state to restore checkpoint
-            if is_baseline:
-                model = Baseline(config)
-                dummy_state = train_state.TrainState.create(
-                    apply_fn=model.apply,
-                    params=model.init(jax.random.PRNGKey(config.SEED), jnp.ones(shape=(1, 384, 512, 3)))["params"],
-                    tx=optax.adam(config.LEARNING_RATE)
-                )
+            # First, try finding checkpoint files on W&B
+            files = [f for f in run.files() if f.name.startswith(f"{ckpt_name}/")]
+            if len(files) > 0:
+                checkpoint_dir = f"wandb_checkpoints/{run_id}/{ckpt_name}"
+                print(f"\nDownloading checkpoint {ckpt_name} for run: {run_name} (ID: {run_id}) from W&B...")
+                for f in files:
+                    f.download(root=f"wandb_checkpoints/{run_id}", replace=True)
             else:
-                model = PerceptNet(config)
-                dummy_state = create_train_state(
-                    model, jax.random.PRNGKey(config.SEED), optax.adam(config.LEARNING_RATE), input_shape=(1, 384, 512, 3)
-                )
+                # Fall back to local search in case files were not synced to W&B
+                local_runs = glob.glob(f"wandb/run-*-{run_id}/files/{ckpt_name}")
+                if len(local_runs) > 0:
+                    checkpoint_dir = local_runs[0]
+                    print(f"\nNo checkpoint {ckpt_name} on W&B for run {run_name} (ID: {run_id}), using local copy at: {checkpoint_dir}")
+                    
+            if not checkpoint_dir:
+                # If this specific checkpoint type is not found, skip it
+                continue
                 
-            # Restore and align checkpoint
-            raw = ckptr.restore(os.path.abspath(checkpoint_dir))
-            aligned_state = align(raw, dummy_state)
-            
-            # Evaluate TID2013 and KADID10K globally
-            tid08_corr = evaluate_global_correlation(aligned_state, dst_tid08_rdy, is_baseline)
-            tid13_corr = evaluate_global_correlation(aligned_state, dst_tid13_rdy, is_baseline)
-            kad_corr = evaluate_global_correlation(aligned_state, dst_kad_rdy, is_baseline)
-            
-            print(f"-> Global TID2008 Correlation: {tid08_corr:.5f}")
-            print(f"-> Global TID2013 Correlation: {tid13_corr:.5f}")
-            print(f"-> Global KADID10K Correlation: {kad_corr:.5f}")
-            
-            results.append({
-                "Run ID": run_id,
-                "Run Name": run_name,
-                "Job Type": job_type,
-                "Model Type": "Baseline Conv" if is_baseline else "PerceptNet",
-                "TID2008 Correlation": f"{tid08_corr:.5f}",
-                "TID2013 Correlation": f"{tid13_corr:.5f}",
-                "KADID10K Correlation": f"{kad_corr:.5f}",
-                "Checkpoint Path": checkpoint_dir
-            })
-            
-        except Exception as e:
-            print(f"Error processing run {run_id}: {e}")
+            try:
+                # Check if this is the convolutional Baseline or PerceptNet
+                is_baseline = "baseline" in run_name.lower() or "baseline" in job_type.lower()
+                
+                # Build corresponding dummy state to restore checkpoint
+                if is_baseline:
+                    model = Baseline(config)
+                    dummy_state = train_state.TrainState.create(
+                        apply_fn=model.apply,
+                        params=model.init(jax.random.PRNGKey(config.SEED), jnp.ones(shape=(1, 384, 512, 3)))["params"],
+                        tx=optax.adam(config.LEARNING_RATE)
+                    )
+                else:
+                    model = PerceptNet(config)
+                    dummy_state = create_train_state(
+                        model, jax.random.PRNGKey(config.SEED), optax.adam(config.LEARNING_RATE), input_shape=(1, 384, 512, 3)
+                    )
+                    
+                # Restore and align checkpoint
+                raw = ckptr.restore(os.path.abspath(checkpoint_dir))
+                aligned_state = align(raw, dummy_state)
+                
+                # Evaluate TID2008, TID2013 and KADID10K globally
+                tid08_corr = evaluate_global_correlation(aligned_state, dst_tid08_rdy, is_baseline)
+                tid13_corr = evaluate_global_correlation(aligned_state, dst_tid13_rdy, is_baseline)
+                kad_corr = evaluate_global_correlation(aligned_state, dst_kad_rdy, is_baseline)
+                
+                print(f"[{ckpt_name}] -> Global TID2008 Correlation: {tid08_corr:.5f}")
+                print(f"[{ckpt_name}] -> Global TID2013 Correlation: {tid13_corr:.5f}")
+                print(f"[{ckpt_name}] -> Global KADID10K Correlation: {kad_corr:.5f}")
+                
+                results.append({
+                    "Run ID": run_id,
+                    "Run Name": run_name,
+                    "Job Type": job_type,
+                    "Model Type": "Baseline Conv" if is_baseline else "PerceptNet",
+                    "Checkpoint": ckpt_name,
+                    "TID2008 Correlation": f"{tid08_corr:.5f}",
+                    "TID2013 Correlation": f"{tid13_corr:.5f}",
+                    "KADID10K Correlation": f"{kad_corr:.5f}",
+                    "Checkpoint Path": checkpoint_dir
+                })
+                
+            except Exception as e:
+                print(f"Error processing run {run_id} ({ckpt_name}): {e}")
             
     # 3. Print and Save results
     if len(results) > 0:
