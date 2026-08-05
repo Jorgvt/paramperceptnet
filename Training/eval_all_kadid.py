@@ -253,9 +253,13 @@ def main():
         with open("local_kadid_correlations.md", "w") as f:
             f.write(output_text)
             
+        df.to_csv("local_kadid_correlations.csv", index=False)
+            
         print("\n=== Summary Table ===")
         print(markdown_table)
-        print("\nResults successfully saved to Training/local_kadid_correlations.md")
+        print("\nResults successfully saved to:")
+        print("  - Training/local_kadid_correlations.md")
+        print("  - Training/local_kadid_correlations.csv")
     else:
         print("\nNo local KADID-trained runs with checkpoints found.")
 
