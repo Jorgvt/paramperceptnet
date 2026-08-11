@@ -45,6 +45,7 @@ class PerceptNet(nn.Module):
             fs=21,
             use_bias=False,
             padding="VALID",
+            normalize_sum=False,  # model was trained before this param existed; old default was False
         )(outputs, **kwargs)
         outputs = nn.max_pool(outputs, window_shape=(2, 2), strides=(2, 2))
 
@@ -95,6 +96,94 @@ class PerceptNet(nn.Module):
         )(outputs, fmean=fmean, theta_mean=theta_mean, **kwargs)
 
         ## Final Linear Scaling
+        outputs = LinearScaling()(outputs)
+
+        return outputs
+
+
+class PerceptNetV2(nn.Module):
+    """IQA model with all V2 improvements (not backward-compatible with published HF checkpoints).
+
+    Differences from ``PerceptNet`` (legacy):
+
+    * ``CenterSurroundLogSigmaK`` uses ``normalize_sum=True`` — the CSF kernel is
+      additionally normalised so that each Gaussian sums to 1 before subtraction.
+      This is now the default in fxlayers and is more principled.
+    * ``GaborLayerGammaHumanLike_`` uses ``correct_theta_ordering=True`` — the
+      theta_mean labels are assigned with ``jnp.repeat`` so that each orientation
+      value is repeated for every frequency it pairs with, producing a semantically
+      correct (freq, theta) layout.
+    * ``GDNSpatioChromaFreqOrient`` uses ``legacy=False`` — the divisive
+      normalisation kernel is built with the matching repeat-based gamma assembly,
+      wrapped angular distance (``diff_ang``), and cross-phase blocking (``H_pp``).
+    """
+
+    config: Any
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs,
+        **kwargs,
+    ):
+        if self.config.USE_GAMMA:
+            outputs = GDNGamma()(inputs)
+        else:
+            outputs = GDN(kernel_size=(1, 1), apply_independently=True)(inputs)
+
+        outputs = nn.Conv(features=3, kernel_size=(1, 1), use_bias=False, name="Color")(outputs)
+        outputs = nn.max_pool(outputs, window_shape=(2, 2), strides=(2, 2))
+        outputs = GDN(kernel_size=(1, 1), apply_independently=True)(outputs)
+
+        outputs = pad_same_from_kernel_size(outputs, kernel_size=self.config.CS_KERNEL_SIZE, mode="symmetric")
+        outputs = CenterSurroundLogSigmaK(
+            features=3,
+            kernel_size=self.config.CS_KERNEL_SIZE,
+            fs=21,
+            use_bias=False,
+            padding="VALID",
+            normalize_sum=True,  # V2: normalise each Gaussian to unit sum before subtraction
+        )(outputs, **kwargs)
+        outputs = nn.max_pool(outputs, window_shape=(2, 2), strides=(2, 2))
+
+        outputs = GDNGaussian(
+            kernel_size=self.config.GDNGAUSSIAN_KERNEL_SIZE,
+            apply_independently=True,
+            fs=32,
+            padding="symmetric",
+            normalize_prob=self.config.NORMALIZE_PROB,
+            normalize_energy=self.config.NORMALIZE_ENERGY,
+        )(outputs, **kwargs)
+
+        outputs = pad_same_from_kernel_size(outputs, kernel_size=self.config.GABOR_KERNEL_SIZE, mode="symmetric")
+        outputs, fmean, theta_mean = GaborLayerGammaHumanLike_(
+            n_scales=[4, 2, 2],
+            n_orientations=[8, 8, 8],
+            kernel_size=self.config.GABOR_KERNEL_SIZE,
+            fs=32,
+            xmean=self.config.GABOR_KERNEL_SIZE / 32 / 2,
+            ymean=self.config.GABOR_KERNEL_SIZE / 32 / 2,
+            strides=1,
+            padding="VALID",
+            normalize_prob=self.config.NORMALIZE_PROB,
+            normalize_energy=self.config.NORMALIZE_ENERGY,
+            zero_mean=self.config.ZERO_MEAN,
+            use_bias=self.config.USE_BIAS,
+            train_A=self.config.A_GABOR,
+            correct_theta_ordering=True,  # V2: semantically correct (freq, theta) labeling
+        )(outputs, return_freq=True, return_theta=True, **kwargs)
+
+        outputs = GDNSpatioChromaFreqOrient(
+            kernel_size=21,
+            strides=1,
+            padding="symmetric",
+            fs=32,
+            apply_independently=False,
+            normalize_prob=self.config.NORMALIZE_PROB,
+            normalize_energy=self.config.NORMALIZE_ENERGY,
+            legacy=False,  # V2: diff_ang + phase-blocking + correct gamma assembly
+        )(outputs, fmean=fmean, theta_mean=theta_mean, **kwargs)
+
         outputs = LinearScaling()(outputs)
 
         return outputs
