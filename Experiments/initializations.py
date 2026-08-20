@@ -46,7 +46,9 @@ parser.add_argument("-N", help="Number of seeds to try", type=int)
 parser.add_argument('--path', help="Folder to store the resulting csv files", type=str, default=".")
 parser.add_argument("--name", help="Name of the generated file", type=str, default=None)
 parser.add_argument("--model", choices=["param", "baseline"], help="Model to test.")
+parser.add_argument("--dataset", choices=["tid2008", "tid2013", "kadid10k"], help="Dataset to test on.")
 parser.add_argument("--testing", help="Do only one iteration per dataset", action="store_true")
+parser.add_argument("--exclude-identical", help="Exclude identical pairs. This only matters when using KADID because their ground truth file contains identical pairs.", action="store_true")
 args = parser.parse_args()
 
 if args.path != ".":
@@ -71,8 +73,12 @@ elif args.model == "baseline":
 # dst_val = TID2013(
 #     "/lustre/ific.uv.es/ml/uv075/Databases/IQA//TID/TID2013/", exclude_imgs=[25]
 # )
-dst_train = TID2008("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2008/", exclude_imgs=[25])
-dst_val = TID2013("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2013/", exclude_imgs=[25])
+if args.dataset == "tid2008":
+    dst_train = TID2008("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2008/", exclude_imgs=[25])
+elif args.dataset == "tid2013":
+    dst_train = TID2013("/media/disk/vista/BBDD_video_image/Image_Quality//TID/TID2013/", exclude_imgs=[25])
+elif args.dataset == "kadid10k":
+    dst_train = KADIK10K("/media/disk/vista/BBDD_video_image/Image_Quality/KADIK10K/", exclude_identical_pairs=args.exclude_identical)
 # dst_train = TID2008("/media/databases/IQA/TID/TID2008/", exclude_imgs=[25])
 # dst_val = TID2013("/media/databases/IQA/TID/TID2013/", exclude_imgs=[25])
 
@@ -81,12 +87,11 @@ img, img_dist, mos = next(iter(dst_train.dataset))
 img.shape, img_dist.shape, mos.shape
 
 # %%
-img, img_dist, mos = next(iter(dst_val.dataset))
-img.shape, img_dist.shape, mos.shape
+# img, img_dist, mos = next(iter(dst_val.dataset))
+# img.shape, img_dist.shape, mos.shape
 
 # %%
 dst_train_rdy = dst_train.dataset.batch(config.BATCH_SIZE, drop_remainder=True).prefetch(1)
-dst_val_rdy = dst_val.dataset.batch(config.BATCH_SIZE, drop_remainder=True).prefetch(1)
 
 
 ## Evaluate function
@@ -130,4 +135,5 @@ for seed in tqdm(seeds):
     results['pearson'].append(res)
 
 df = pd.DataFrame(results)
-df.to_csv(f"{args.path}/{name}.csv", index=False)
+os.makedirs(f"{args.path}/{args.model}-{args.dataset}", exist_ok=True)
+df.to_csv(f"{args.path}/{args.model}-{args.dataset}/{name}.csv", index=False)

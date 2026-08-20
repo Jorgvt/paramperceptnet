@@ -210,7 +210,7 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
     ):
         """Legacy gaussian: plain squared-theta distance, no phase-blocking (HF-compatible)."""
         return (
-            H_cc[c_1, c_2]
+            jnp.asarray(H_cc)[c_1, c_2]
             * A
             * jnp.exp(-((gamma_f**2) * (f - fmean) ** 2) / (2))
             * jnp.exp(-((gamma_theta**2) * (theta - theta_mean) ** 2) / (2))
@@ -234,7 +234,7 @@ class ChromaFreqOrientGaussianGamma(nn.Module):
             ]), axis=0)
         g_f = jnp.exp(-((gamma_f**2) * (f - fmean) ** 2) / 2)
         g_t = jnp.exp(-((gamma_theta**2) * diff_ang(theta, theta_mean) ** 2) / 2)
-        return H_cc[c_1, c_2] * H_pp[p_1, p_2] * A * g_f * g_t
+        return jnp.asarray(H_cc)[c_1, c_2] * jnp.asarray(H_pp)[p_1, p_2] * A * g_f * g_t
 
 
 class GDNSpatioChromaFreqOrient(nn.Module):
