@@ -60,19 +60,20 @@ def get_batch_distances(state, img, img_dist):
     return dist
 
 
-def evaluate_global_correlation(state, dataset_rdy):
+def evaluate_dataset_predictions(state, dataset_rdy):
     all_dists = []
     all_mos = []
     for batch in dataset_rdy.as_numpy_iterator():
         img, img_dist, mos = batch
         dist = get_batch_distances(state, img, img_dist)
-        all_dists.append(dist)
-        all_mos.append(mos)
+        all_dists.append(np.array(dist))
+        all_mos.append(np.array(mos))
 
-    all_dists = jnp.concatenate(all_dists)
-    all_mos = jnp.concatenate(all_mos)
+    all_dists = np.concatenate(all_dists)
+    all_mos = np.concatenate(all_mos)
     corr, _ = stats.pearsonr(all_dists, all_mos)
-    return corr
+    return float(corr), all_dists, all_mos
+
 
 
 def _deep_restore(target: dict, source: dict) -> None:
@@ -188,6 +189,18 @@ def main():
         type=str,
         default="/media/disk/vista/BBDD_video_image/Image_Quality/KADIK10K/",
         help="Path to KADIK10K dataset",
+    )
+    parser.add_argument(
+        "--predictions_dir",
+        type=str,
+        default="predictions_ablation",
+        help="Local directory to save per-pair prediction CSVs",
+    )
+    parser.add_argument(
+        "--upload_to_wandb",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to upload prediction CSV files to W&B runs (default: True)",
     )
     args = parser.parse_args()
 
@@ -347,13 +360,53 @@ def main():
             )
 
             # Re-evaluate TID2008, TID2013, and evaluate KADIK10K
-            tid08_corr = evaluate_global_correlation(
+            tid08_corr, tid08_dists, tid08_mos = evaluate_dataset_predictions(
                 aligned_state, dst_tid08_rdy
             )
-            tid13_corr = evaluate_global_correlation(
+            tid13_corr, tid13_dists, tid13_mos = evaluate_dataset_predictions(
                 aligned_state, dst_tid13_rdy
             )
-            kad_corr = evaluate_global_correlation(aligned_state, dst_kad_rdy)
+            kad_corr, kad_dists, kad_mos = evaluate_dataset_predictions(
+                aligned_state, dst_kad_rdy
+            )
+
+            # Save per-pair predictions to local CSV files
+            run_pred_dir = os.path.join(args.predictions_dir, run_id)
+            os.makedirs(run_pred_dir, exist_ok=True)
+
+            df_tid08_pred = pd.DataFrame({
+                "pair_idx": np.arange(len(tid08_dists)),
+                "predicted_distance": tid08_dists,
+                "mos": tid08_mos,
+            })
+            df_tid13_pred = pd.DataFrame({
+                "pair_idx": np.arange(len(tid13_dists)),
+                "predicted_distance": tid13_dists,
+                "mos": tid13_mos,
+            })
+            df_kad_pred = pd.DataFrame({
+                "pair_idx": np.arange(len(kad_dists)),
+                "predicted_distance": kad_dists,
+                "mos": kad_mos,
+            })
+
+            tid08_csv_path = os.path.join(run_pred_dir, "tid2008_predictions.csv")
+            tid13_csv_path = os.path.join(run_pred_dir, "tid2013_predictions.csv")
+            kad_csv_path = os.path.join(run_pred_dir, "kadik10k_predictions.csv")
+
+            df_tid08_pred.to_csv(tid08_csv_path, index=False)
+            df_tid13_pred.to_csv(tid13_csv_path, index=False)
+            df_kad_pred.to_csv(kad_csv_path, index=False)
+
+            # Upload CSVs to W&B
+            if args.upload_to_wandb:
+                try:
+                    print(f"  - Uploading prediction CSVs to W&B for run {run_id}...")
+                    run_obj.upload_file(tid08_csv_path)
+                    run_obj.upload_file(tid13_csv_path)
+                    run_obj.upload_file(kad_csv_path)
+                except Exception as e:
+                    print(f"  - Warning: Failed to upload CSVs to W&B for run {run_id}: {e}")
 
             print(f"Configuration: {run_name_sig}")
             print(
