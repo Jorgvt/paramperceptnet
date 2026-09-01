@@ -300,9 +300,24 @@ def main():
                 continue
 
             try:
-                # Determine model architecture
-                is_baseline = "baseline" in run_name.lower() or "baseline" in job_type.lower()
-                is_legacy = "legacy" in run_name.lower() or "original" in run_name.lower()
+                # Restore raw checkpoint first to detect architecture accurately
+                raw = ckptr.restore(os.path.abspath(checkpoint_dir))
+                raw_params = raw.get("params", {})
+
+                # Determine model architecture from checkpoint parameter keys
+                if "CenterSurroundLogSigmaK_0" in raw_params or "GaborLayerGammaHumanLike__0" in raw_params or "GDNSpatioChromaFreqOrient_0" in raw_params:
+                    model_type_str = "PerceptNet"
+                elif "Conv_1" in raw_params and "GDN_3" in raw_params:
+                    model_type_str = "Baseline"
+                elif "Color" in raw_params and "GDN_0" in raw_params and "Conv_0" in raw_params:
+                    model_type_str = "Original"
+                elif "baseline" in run_name.lower() or "baseline" in job_type.lower():
+                    model_type_str = "Baseline"
+                else:
+                    model_type_str = "PerceptNet"
+
+                is_baseline = (model_type_str == "Baseline")
+                is_original = (model_type_str == "Original")
 
                 # Build model configuration from run config
                 model_config = copy.deepcopy(config)
@@ -321,7 +336,7 @@ def main():
                         )["params"],
                         tx=optax.adam(model_config.LEARNING_RATE),
                     )
-                elif is_legacy:
+                elif is_original:
                     model = Original(model_config)
                     dummy_state = create_train_state(
                         model,
@@ -338,8 +353,6 @@ def main():
                         input_shape=(1, 384, 512, 3),
                     )
 
-                # Restore and align checkpoint
-                raw = ckptr.restore(os.path.abspath(checkpoint_dir))
                 aligned_state = align(raw, dummy_state)
 
                 # If precalc_filter is present, handle initialisation pass and deep restore
