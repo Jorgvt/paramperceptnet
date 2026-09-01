@@ -1,3 +1,9 @@
+try:
+    import tensorflow as tf
+    tf.config.set_visible_devices([], device_type="GPU")
+except ImportError:
+    pass
+
 import os
 import argparse
 import copy
@@ -187,6 +193,12 @@ def main():
         help="Local directory to save per-pair prediction CSVs",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size for dataset evaluation (default: 32)",
+    )
+    parser.add_argument(
         "--upload_to_wandb",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -198,25 +210,22 @@ def main():
     print("Loading TID2008 dataset...")
     dst_tid08 = TID2008(args.tid08_path, exclude_imgs=[25])
     dst_tid08_rdy = (
-        dst_tid08.dataset.batch(config.BATCH_SIZE, drop_remainder=True)
+        dst_tid08.dataset.batch(args.batch_size, drop_remainder=True)
         .prefetch(1)
-        .cache()
     )
 
     print("Loading TID2013 dataset...")
     dst_tid13 = TID2013(args.tid13_path, exclude_imgs=[25])
     dst_tid13_rdy = (
-        dst_tid13.dataset.batch(config.BATCH_SIZE, drop_remainder=True)
+        dst_tid13.dataset.batch(args.batch_size, drop_remainder=True)
         .prefetch(1)
-        .cache()
     )
 
     print("Loading KADIK10K dataset...")
     dst_kad = KADIK10K(args.kadid_path, exclude_identical_pairs=True)
     dst_kad_rdy = (
-        dst_kad.dataset.batch(config.BATCH_SIZE, drop_remainder=True)
+        dst_kad.dataset.batch(args.batch_size, drop_remainder=True)
         .prefetch(1)
-        .cache()
     )
 
     ckptr = orbax.checkpoint.PyTreeCheckpointer()
