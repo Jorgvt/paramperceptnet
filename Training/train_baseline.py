@@ -9,14 +9,23 @@ from absl.flags import FLAGS
 from typing import Any, Callable, Sequence, Union
 import numpy as np
 
-import jax
-_ = jax.devices() # Force backend initialization
-from jax import lax, random, numpy as jnp
-import flax
-
 import tensorflow as tf
 
 tf.config.set_visible_devices([], device_type="GPU")
+
+import jax
+# Monkey-patch Orbax's internal device map cache to resolve CPU-to-GPU device mapping differences (TFRT_CPU_0)
+import orbax.checkpoint.type_handlers as ocp_type_handlers
+try:
+    cpu_device = jax.devices('cpu')[0]
+    device_map = {str(device): device for device in jax.local_devices()}
+    device_map[str(cpu_device)] = cpu_device
+    device_map["TFRT_CPU_0"] = cpu_device
+    ocp_type_handlers._deserialize_sharding_from_json_string.device_map = device_map
+except Exception:
+    pass
+
+from jax import lax, random, numpy as jnp
 import flax
 from flax.core import freeze, unfreeze, FrozenDict
 from flax import linen as nn
@@ -33,15 +42,15 @@ from ml_collections import ConfigDict, config_flags
 import wandb
 from iqadatasets.datasets import *
 from JaxPlayground.utils.wandb import *
-from paramperceptnet.models import PerceptNet
+from paramperceptnet.models import Baseline as PerceptNet
 from paramperceptnet.constraints import *
 from paramperceptnet.training import *
 from paramperceptnet.configs import param_config as config
 from paramperceptnet.initialization import humanlike_init
 
-_CONFIG = config_flags.DEFINE_config_file("config")
-flags.FLAGS(sys.argv)
-config = _CONFIG.value
+# _CONFIG = config_flags.DEFINE_config_file("config")
+# flags.FLAGS(sys.argv)
+# config = _CONFIG.value
 print(config)
 # %%
 # dst_train = TID2008(
@@ -67,12 +76,36 @@ img, img_dist, mos = next(iter(dst_val.dataset))
 img.shape, img_dist.shape, mos.shape
 
 # %%
+parser = argparse.ArgumentParser(description="Train PerceptNet Baseline")
+parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint directory to resume from.")
+parser.add_argument("--resume_wandb", action="store_true", help="Resume the wandb run associated with the checkpoint.")
+args, unknown = parser.parse_known_args()
+
+def parse_wandb_id_from_path(path):
+    if not path:
+        return None
+    parts = path.split('/')
+    for part in parts:
+        if part.startswith("run-") and "-" in part:
+            return part.split("-")[-1]
+    return None
+
+wandb_id = None
+resume_mode = None
+if args.resume and args.resume_wandb:
+    wandb_id = parse_wandb_id_from_path(args.resume)
+    if wandb_id:
+        resume_mode = "must"
+        print(f"Resuming wandb run with ID: {wandb_id}")
+
 wandb.init(
     project="PerceptNet_v15",
-    name="TrainKADID10K-Legacy",
+    name="Baseline_ParamConfig-KADID10K",
     job_type="training-kadid10k",
     config=config,
     mode="online",
+    id=wandb_id,
+    resume=resume_mode,
 )
 config = config
 config
@@ -91,56 +124,15 @@ state = create_train_state(
     PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
-state = state.replace(params=clip_layer(state.params, "LinearScaling", a_min=0.1))
 state = state.replace(params=clip_param(state.params, "A", a_min=0))
 
 # %%
 state.params.keys()
 
 # %%
-pred, _ = state.apply_fn(
-    {"params": state.params, **state.state},
-    jnp.ones(shape=(1, 384, 512, 3)),
-    train=True,
-    mutable=list(state.state.keys()),
-)
-state = state.replace(state=_)
-
-def check_trainable(path):
-    if config.TRAIN_ONLY_B:
-        if "B" in path:
-            return False
-        else:
-            return True
-    if "GDNGamma_0" in path:
-        if not config.TRAIN_GDNGAMMA:
-            return True
-    if "Color" in path:
-        if not config.TRAIN_JH:
-            return True
-    if "GDN_0" in path:
-        if not config.TRAIN_GDNCOLOR:
-            return True
-    if "CenterSurroundLogSigmaK_0" in path:
-        if not config.TRAIN_CS:
-            return True
-    if "GDNGaussian_0" in path:
-        if not config.TRAIN_GDNGAUSSIAN:
-            return True
-    if "Gabor" in "".join(path):
-        if not config.TRAIN_GABOR:
-            return True
-    if not config.A_GDNSPATIOFREQORIENT:
-        if ("GDNSpatioChromaFreqOrient_0" in path) and ("A" in path):
-            return True
-    if "GDNSpatioChromaFreqOrient_0" not in path and config.TRAIN_ONLY_LAST_GDN:
-        return True
-    return False
-
-# %%
 trainable_tree = freeze(
     flax.traverse_util.path_aware_map(
-        lambda path, v: "non_trainable" if check_trainable(path) else "trainable",
+        lambda path, v: "trainable",
         state.params,
     )
 )
@@ -174,7 +166,6 @@ state = create_train_state(
     PerceptNet(config), random.PRNGKey(config.SEED), tx, input_shape=(1, 384, 512, 3)
 )
 state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
-state = state.replace(params=clip_layer(state.params, "LinearScaling", a_min=0.1))
 
 # %%
 param_count = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
@@ -192,35 +183,92 @@ print(param_count, trainable_param_count)
 wandb.run.summary["total_parameters"] = param_count
 wandb.run.summary["trainable_parameters"] = trainable_param_count
 
-## Initialization
-params = unfreeze(state.params)
-params = humanlike_init(params)
-state = state.replace(params=freeze(params))
-
-## Recalculate parametric filters
-pred, _ = state.apply_fn(
-    {"params": state.params, **state.state},
-    jnp.ones(shape=(1, 384, 512, 3)),
-    train=True,
-    mutable=list(state.state.keys()),
-)
-state = state.replace(state=_)
-
 # %%
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
 save_args = orbax_utils.save_args_from_target(state)
 
 # %%
-orbax_checkpointer.save(
-    os.path.join(wandb.run.dir, "model-0"), state, save_args=save_args, force=True
-)  # force=True means allow overwritting.
-wandb.save(os.path.join(wandb.run.dir, "model-0/**/*"), base_path=wandb.run.dir, policy="live")
+if args.resume:
+    # Restore the raw state first
+    raw_restored = orbax_checkpointer.restore(args.resume)
+    
+    # Define target-compatible restore args from raw restored structure
+    def make_restore_args(x):
+        if hasattr(x, 'sharding') or isinstance(x, jax.Array) or (hasattr(x, 'shape') and len(x.shape) > 0):
+            return orbax.checkpoint.ArrayRestoreArgs(
+                restore_type=jax.Array,
+                sharding=jax.sharding.SingleDeviceSharding(jax.local_devices()[0])
+            )
+        return orbax.checkpoint.RestoreArgs()
+    
+    restore_args = jax.tree_util.tree_map(make_restore_args, raw_restored)
+    raw_restored = orbax_checkpointer.restore(args.resume, restore_args=restore_args)
+    
+    # Align raw structures back to the state container types
+    def align_structures(raw, target):
+        if isinstance(target, FrozenDict):
+            return freeze({k: align_structures(raw[k], v) for k, v in target.items()})
+        elif isinstance(target, dict):
+            return {k: align_structures(raw[k], v) for k, v in target.items()}
+        elif isinstance(target, tuple):
+            if raw is None:
+                if hasattr(target, '_fields') and len(target._fields) == 0:
+                    return type(target)()
+                return None
+            
+            # If target is a namedtuple
+            if hasattr(target, '_fields'):
+                elements = [align_structures(raw[f], getattr(target, f)) for f in target._fields]
+                return type(target)(*elements)
+                
+            # If target is a plain tuple
+            if isinstance(raw, list):
+                elements = [align_structures(raw[i], target[i]) for i in range(len(target))]
+            elif isinstance(raw, dict):
+                elements = [align_structures(raw[str(i)], target[i]) for i in range(len(target))]
+            else:
+                raise TypeError(f"Expected list/dict for tuple, got {type(raw)}")
+            return tuple(elements)
+        elif isinstance(target, list):
+            return [align_structures(raw[i], target[i]) for i in range(len(target))]
+        elif hasattr(target, '__dataclass_fields__'):
+            field_values = {}
+            for f in target.__dataclass_fields__:
+                if isinstance(raw, dict) and f in raw:
+                    field_values[f] = align_structures(raw[f], getattr(target, f))
+                else:
+                    field_values[f] = getattr(target, f)
+            return type(target)(**field_values)
+        else:
+            return raw
+            
+    state = align_structures(raw_restored, state)
+    step = int(state.step)
+    steps_per_epoch = len(dst_train_rdy)
+    start_epoch = step // steps_per_epoch
+    print(f"Resumed from checkpoint {args.resume} at step {step} (epoch {start_epoch})")
+else:
+    orbax_checkpointer.save(
+        os.path.join(wandb.run.dir, "model-0"), state, save_args=save_args, force=True
+    )  # force=True means allow overwritting.
+    wandb.save(os.path.join(wandb.run.dir, "model-0/**/*"), base_path=wandb.run.dir, policy="live")
+    step = 0
+    start_epoch = 0
 
 # %%
 metrics_history = {
     "train_loss": [],
     "val_loss": [],
 }
+if args.resume:
+    # Evaluate the restored model to populate the initial best val loss
+    for batch in dst_val_rdy.as_numpy_iterator():
+        state = compute_metrics(state=state, batch=batch)
+    initial_val_loss = float(state.metrics.compute()["loss"])
+    state = state.replace(metrics=state.metrics.empty())
+    metrics_history["val_loss"].append(initial_val_loss)
+    metrics_history["train_loss"].append(float('inf'))
+    print(f"Restored model validation loss: {initial_val_loss}")
 
 # %%
 batch = next(iter(dst_train_rdy.as_numpy_iterator()))
@@ -277,13 +325,11 @@ def filter_extra(extra):
 
 # %%
 # %%time
-step = 0
-for epoch in range(config.EPOCHS):
+for epoch in range(start_epoch, config.EPOCHS):
     ## Training
     for batch in dst_train_rdy.as_numpy_iterator():
         state, grads = train_step(state, batch, return_grads=True)
         state = state.replace(params=clip_layer(state.params, "GDN", a_min=0))
-        state = state.replace(params=clip_layer(state.params, "LinearScaling", a_min=0.1))
         state = state.replace(params=clip_param(state.params, "A", a_min=0))
         state = state.replace(params=clip_param(state.params, "K", a_min=1 + 1e-5))
         wandb.log(
