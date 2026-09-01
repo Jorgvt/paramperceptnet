@@ -437,7 +437,7 @@ def main():
                     "Run ID": run_id,
                     "Run Name": run_name,
                     "Job Type": job_type,
-                    "Model Type": "Baseline Conv" if is_baseline else ("Original Legacy" if is_legacy else "PerceptNet"),
+                    "Model Type": "Baseline Conv" if is_baseline else ("Original Legacy" if is_original else "PerceptNet"),
                     "Checkpoint": ckpt_name,
                     "TID2008 Correlation": f"{tid08_corr:.5f}",
                     "TID2013 Correlation": f"{tid13_corr:.5f}",
