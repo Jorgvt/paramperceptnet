@@ -1,7 +1,10 @@
 """Repair and re-upload complete, self-contained checkpoints to Weights & Biases runs.
 
 This script:
-1. Iterates over all target W&B runs (Ablation models, Progressive Freezing models, KADID-trained models).
+1. Targets all 59 manuscript runs:
+   - 48 Parametric Ablation models (from sweeps + baseline 396atbyq).
+   - 8 Progressive Freezing models.
+   - 3 KADID-trained models.
 2. For each checkpoint ('model-0', 'model-best', 'model-final'):
    - Downloads/restores the raw checkpoint.
    - Instantiates the proper model architecture and state.
@@ -51,7 +54,8 @@ except Exception:
 
 from paramperceptnet.training import create_train_state
 from paramperceptnet.configs import param_config as config
-from paramperceptnet.models import PerceptNet, Baseline, Original, AblationPerceptNet
+from paramperceptnet.models import PerceptNet, Baseline, Original
+from paramperceptnet.models_ablation import AblationPerceptNet
 
 
 def _deep_restore(target: dict, source: dict) -> None:
@@ -122,98 +126,69 @@ def align(raw_val, target_val):
         return raw_val
 
 
-def get_ablation_name(cfg):
-    """Extract ablation configuration signature from config dictionary."""
-    config_dict = {
-        "GDNGAMMA": 1,
-        "COLOR": 2,
-        "GDNCOLOR": 3,
-        "CS": 4,
-        "GDNGAUSSIAN": 5,
-        "GABOR": 6,
-        "GDNSPATIOFREQORIENT": 7,
-        "LAST_GDN": 8,
-    }
-    name = []
-    for k, v in config_dict.items():
-        if getattr(cfg, f"PARAM_{k}", False) or (isinstance(cfg, dict) and cfg.get(f"PARAM_{k}", False)):
-            name.append(v)
-    return str(name)
-
-
 def collect_target_runs(api, project="Jorgvt/PerceptNet_v15"):
-    """Collect all target runs to process: Ablations, Progressive Freezing, and KADID-trained."""
-    runs_to_process = {}
+    """Collect all 59 target runs to process: Ablations (48), Progressive Freezing (8), and KADID-trained (3)."""
+    runs_to_process = []
 
-    print("1. Collecting Ablation sweep runs...")
-    sweep_ids = ["14oohbnh", "10ltg55x", "3825yhz4"]
-    for s_id in sweep_ids:
+    # 1. Ablation Runs (48 runs)
+    ablation_csv_path = "Plotting/ablation_bootstrap_results.csv"
+    if os.path.exists(ablation_csv_path):
+        df_abl = pd.read_csv(ablation_csv_path)
+        abl_ids = df_abl["run_id"].unique().tolist()
+    else:
+        # Fallback list of 48 ablation run IDs
+        ext_csv = "Plotting/results_ablation_parametric_table_extended_2.csv"
+        df_ext = pd.read_csv(ext_csv)
+        abl_ids = df_ext["run_id"].unique().tolist()
+
+    print(f"1. Fetching {len(abl_ids)} Ablation runs...")
+    for r_id in tqdm(abl_ids, desc="Ablation runs"):
         try:
-            sweep = api.sweep(f"{project}/{s_id}")
-            for r in sweep.runs:
-                if len(r.history()) >= 500:
-                    sig = get_ablation_name(r.config)
-                    # Keep run with lowest val_loss per signature
-                    val_loss = r.summary.get("val_loss", 0)
-                    if sig not in runs_to_process or val_loss < runs_to_process[sig]["val_loss"]:
-                        runs_to_process[sig] = {
-                            "run_id": r.id,
-                            "run_name": r.name,
-                            "type": "ablation",
-                            "val_loss": val_loss,
-                            "run_obj": r,
-                        }
+            r = api.run(f"{project}/{r_id}")
+            runs_to_process.append({
+                "run_id": r.id,
+                "run_name": r.name,
+                "type": "ablation",
+                "run_obj": r,
+            })
         except Exception as e:
-            print(f"  Warning: Could not fetch sweep {s_id}: {e}")
+            print(f"  Warning: Could not fetch ablation run {r_id}: {e}")
 
-    # Baseline run
-    try:
-        r_base = api.run(f"{project}/396atbyq")
-        runs_to_process["[]_baseline"] = {
-            "run_id": r_base.id,
-            "run_name": r_base.name,
-            "type": "baseline",
-            "val_loss": r_base.summary.get("val_loss", 0),
-            "run_obj": r_base,
-        }
-    except Exception as e:
-        print(f"  Warning: Baseline run 396atbyq: {e}")
-
-    print("2. Collecting Progressive Freezing runs...")
+    # 2. Progressive Freezing Runs (8 runs)
     prog_ids = [
         "i8kkltwu", "gx9gpizs", "c9u2vqjz", "2aae1qvd",
         "f8uv6afu", "3r2slksi", "k24dfyo8", "csrhdpbd",
     ]
-    for r_id in prog_ids:
+    print(f"2. Fetching {len(prog_ids)} Progressive Freezing runs...")
+    for r_id in tqdm(prog_ids, desc="Progressive Freezing runs"):
         try:
             r = api.run(f"{project}/{r_id}")
-            runs_to_process[f"progressive_{r_id}"] = {
+            runs_to_process.append({
                 "run_id": r.id,
                 "run_name": r.name,
                 "type": "progressive",
-                "val_loss": r.summary.get("val_loss", 0),
                 "run_obj": r,
-            }
+            })
         except Exception as e:
-            print(f"  Warning: Progressive run {r_id}: {e}")
+            print(f"  Warning: Could not fetch progressive run {r_id}: {e}")
 
-    print("3. Collecting KADID-trained runs...")
+    # 3. KADID-Trained Runs (3 runs)
     kadid_ids = ["ncmk3oal", "ibfurp59", "csste11r"]
-    for r_id in kadid_ids:
+    print(f"3. Fetching {len(kadid_ids)} KADID-trained runs...")
+    for r_id in tqdm(kadid_ids, desc="KADID-trained runs"):
         try:
             r = api.run(f"{project}/{r_id}")
-            runs_to_process[f"kadid_{r_id}"] = {
+            runs_to_process.append({
                 "run_id": r.id,
                 "run_name": r.name,
                 "type": "kadid_trained",
-                "val_loss": r.summary.get("val_loss", 0),
                 "run_obj": r,
-            }
+            })
         except Exception as e:
-            print(f"  Warning: KADID-trained run {r_id}: {e}")
+            print(f"  Warning: Could not fetch KADID-trained run {r_id}: {e}")
 
-    print(f"Total unique runs identified: {len(runs_to_process)}")
-    return list(runs_to_process.values())
+    print(f"\nTotal runs collected: {len(runs_to_process)} (Target: 59)")
+    return runs_to_process
 
 
 def repair_and_upload_run(run_info, ckpt_types, local_scratch_dir="repaired_checkpoints", upload=True):
@@ -242,7 +217,7 @@ def repair_and_upload_run(run_info, ckpt_types, local_scratch_dir="repaired_chec
             if len(local_runs) > 0:
                 checkpoint_dir = os.path.dirname(local_runs[0])
             else:
-                # Checkpoint not present for this run
+                # Checkpoint not present on W&B or locally
                 continue
 
         try:
@@ -320,7 +295,7 @@ def repair_and_upload_run(run_info, ckpt_types, local_scratch_dir="repaired_chec
                         run_obj.upload_file(full_fpath)
 
             repaired_count += 1
-            print(f"  ✓ Successfully repaired & uploaded [{ckpt_name}] for run {run_name} ({run_id})")
+            print(f"  ✓ Repaired & uploaded [{ckpt_name}] for run {run_name} ({run_id})")
 
         except Exception as e:
             print(f"  ✗ Error repairing [{ckpt_name}] for run {run_name} ({run_id}): {e}")
