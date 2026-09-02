@@ -336,11 +336,10 @@ def main():
             aligned_state = align(raw, dummy_state)
 
             # The old checkpoints were saved without the ChromaFreqOrientGaussianGamma
-            # precalc_filter kernel.  Run a train=True pass to compute it, then
-            # deep-restore the stored kernels for all other layers so we use the
-            # exact values from training time (avoids GPU/XLA float drift).
+            # precalc_filter kernel. Run a train=True pass to compute it, then
+            # deep-restore only the genuine kernels stored in raw checkpoint (avoiding dummy zeros from dummy_state).
             if "precalc_filter" in aligned_state.state:
-                ckpt_precalc = dict(aligned_state.state.get("precalc_filter", {}))
+                raw_precalc = dict(raw.get("state", {}).get("precalc_filter", {}))
                 _, new_precalc = aligned_state.apply_fn(
                     {"params": aligned_state.params, **aligned_state.state},
                     jnp.ones((1, 384, 512, 3)),
@@ -349,7 +348,7 @@ def main():
                 )
                 if "precalc_filter" in new_precalc:
                     merged_precalc = dict(new_precalc["precalc_filter"])
-                    _deep_restore(merged_precalc, ckpt_precalc)
+                    _deep_restore(merged_precalc, raw_precalc)
                     aligned_state = aligned_state.replace(
                         state={**aligned_state.state, "precalc_filter": merged_precalc}
                     )

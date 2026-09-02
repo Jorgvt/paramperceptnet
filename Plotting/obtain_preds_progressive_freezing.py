@@ -281,7 +281,7 @@ def main():
 
             # Precalc filter handling
             if hasattr(aligned_state, "state") and "precalc_filter" in aligned_state.state:
-                ckpt_precalc = dict(aligned_state.state.get("precalc_filter", {}))
+                raw_precalc = dict(raw.get("state", {}).get("precalc_filter", {})) if isinstance(raw, dict) else {}
                 _, new_precalc = aligned_state.apply_fn(
                     {"params": aligned_state.params, **aligned_state.state},
                     jnp.ones((1, 384, 512, 3)),
@@ -290,7 +290,7 @@ def main():
                 )
                 if "precalc_filter" in new_precalc:
                     merged_precalc = dict(new_precalc["precalc_filter"])
-                    _deep_restore(merged_precalc, ckpt_precalc)
+                    _deep_restore(merged_precalc, raw_precalc)
                     aligned_state = aligned_state.replace(
                         state={
                             **aligned_state.state,
