@@ -1,25 +1,40 @@
-try:
-    import tensorflow as tf
-    tf.config.set_visible_devices([], device_type="GPU")
-except ImportError:
-    pass
+"""Obtain per-pair distance predictions for Progressive Freezing models.
+
+Evaluates all 8 progressive freezing stages + the 9th Fully Frozen (0 params / model-0)
+stage across TID2008, TID2013, and KADIK10K datasets, saves per-pair predictions
+as CSVs, and logs them to Weights & Biases.
+"""
 
 import os
+# Mask GPU from TensorFlow so it doesn't claim VRAM before JAX
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+import tensorflow as tf
+try:
+    tf.config.set_visible_devices([], "GPU")
+except Exception:
+    pass
+
 import argparse
 import copy
-import scipy.stats as stats
+import glob
+import re
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
+import scipy.stats as stats
+import orbax.checkpoint
+import wandb
 import jax
 from jax import numpy as jnp
-import orbax.checkpoint
+from flax.core.frozen_dict import FrozenDict, freeze
 import optax
-import flax
-from flax.training import train_state
-from flax.core import freeze, FrozenDict
-import wandb
 
-# Monkey-patch Orbax's internal device map cache to handle device sharding differences (CPU/GPU)
+from iqadatasets.datasets import TID2008, TID2013, KADIK10K
+from paramperceptnet.models import PerceptNet
+from paramperceptnet.configs import param_config as config
+from paramperceptnet.training import create_train_state
+
+# Handle CPU/CUDA sharding deserialization across platforms
 import orbax.checkpoint.type_handlers as ocp_type_handlers
 
 try:
@@ -27,52 +42,14 @@ try:
     device_map = {str(device): device for device in jax.local_devices()}
     device_map[str(cpu_device)] = cpu_device
     device_map["TFRT_CPU_0"] = cpu_device
-    device_map["cuda:0"] = jax.local_devices()[0]
-    ocp_type_handlers._deserialize_sharding_from_json_string.device_map = (
-        device_map
-    )
+    if len(jax.local_devices()) > 0 and jax.local_devices()[0].platform == "gpu":
+        device_map["cuda:0"] = jax.local_devices()[0]
+    ocp_type_handlers._deserialize_sharding_from_json_string.device_map = device_map
 except Exception:
     pass
 
-from iqadatasets.datasets import TID2008, TID2013, KADIK10K
-from paramperceptnet.training import create_train_state
-from paramperceptnet.configs import param_config as config
-from paramperceptnet.models import PerceptNet, Baseline, Original
 
-
-# JIT compile distance calculation
-@jax.jit
-def get_batch_distances_perceptnet(state, img, img_dist):
-    img_pred = state.apply_fn(
-        {"params": state.params, **state.state},
-        img,
-        train=False,
-    )
-    img_dist_pred = state.apply_fn(
-        {"params": state.params, **state.state},
-        img_dist,
-        train=False,
-    )
-    dist = ((img_pred - img_dist_pred) ** 2).sum(axis=(1, 2, 3)) ** (1 / 2)
-    return dist
-
-
-def evaluate_dataset_predictions(state, dataset_rdy):
-    all_dists = []
-    all_mos = []
-    for batch in dataset_rdy.as_numpy_iterator():
-        img, img_dist, mos = batch
-        dist = get_batch_distances_perceptnet(state, img, img_dist)
-        all_dists.append(np.array(dist))
-        all_mos.append(np.array(mos))
-
-    all_dists = np.concatenate(all_dists)
-    all_mos = np.concatenate(all_mos)
-    corr, _ = stats.pearsonr(all_dists, all_mos)
-    return float(corr), all_dists, all_mos
-
-
-def _deep_restore(target: dict, source: dict) -> None:
+def _deep_restore(target, source):
     """Recursively overwrite target leaves with source values, preserving keys absent in source."""
     for key, value in source.items():
         if isinstance(value, dict) and key in target and isinstance(target[key], dict):
@@ -82,7 +59,8 @@ def _deep_restore(target: dict, source: dict) -> None:
 
 
 def align(raw_val, target_val):
-    if isinstance(target_val, FrozenDict) or isinstance(target_val, dict):
+    """Recursively align checkpoint parameter tree to match dummy state structure."""
+    if isinstance(target_val, (FrozenDict, dict)):
         res = {}
         for k, v in target_val.items():
             if k == "LinearScaling_0" and k not in raw_val and "B" in raw_val:
@@ -127,11 +105,15 @@ def align(raw_val, target_val):
                     elements.append(align(raw_val[i], target_val[i]))
                 else:
                     elements.append(target_val[i])
+        else:
+            elements = target_val
         return tuple(elements)
     elif hasattr(target_val, "__dataclass_fields__"):
         f_vals = {}
         for f in target_val.__dataclass_fields__:
-            if isinstance(raw_val, dict) and f in raw_val:
+            if hasattr(raw_val, f):
+                f_vals[f] = align(getattr(raw_val, f), getattr(target_val, f))
+            elif isinstance(raw_val, dict) and f in raw_val:
                 f_vals[f] = align(raw_val[f], getattr(target_val, f))
             else:
                 f_vals[f] = getattr(target_val, f)
@@ -140,15 +122,43 @@ def align(raw_val, target_val):
         return raw_val
 
 
+@jax.jit
+def forward_pass(params, state, img, dist):
+    """Compute perceptual distance between reference and distorted images."""
+    pnet = PerceptNet(config)
+    img_pred = pnet.apply({"params": params, **state}, img, train=False)
+    dist_pred = pnet.apply({"params": params, **state}, dist, train=False)
+    distance = jnp.sqrt(jnp.mean((img_pred - dist_pred) ** 2, axis=(1, 2, 3)))
+    return distance
+
+
+def evaluate_dataset_predictions(state, tf_dataset):
+    """Run model inference on a dataset and return Pearson correlation, predicted distances, and MOS."""
+    all_dists = []
+    all_mos = []
+
+    for batch in tf_dataset.as_numpy_iterator():
+        ref, dist, mos = batch
+        pred_dist = forward_pass(state.params, state.state, ref, dist)
+        all_dists.extend(np.array(pred_dist))
+        all_mos.extend(np.array(mos))
+
+    all_dists = np.array(all_dists)
+    all_mos = np.array(all_mos)
+    corr, _ = stats.pearsonr(all_dists, all_mos)
+    return corr, all_dists, all_mos
+
+
 DEFAULT_PROGRESSIVE_IDS = [
-    "i8kkltwu",  # FinalModel_TrainAll_GoodInit
-    "gx9gpizs",  # FinalModel_FreezeGDNGamma_GoodInit
-    "c9u2vqjz",  # FinalModel_FreezeJH_GoodInit
-    "2aae1qvd",  # FinalModel_Freeze_GDNColor_GoodInit
-    "f8uv6afu",  # FinalModel_Freeze_CS_GoodInit
-    "3r2slksi",  # FinalModel_Freeze_GDNGaussian_GoodInit
-    "k24dfyo8",  # FinalModel_GDNFinalOnly_GoodInit
-    "csrhdpbd",  # FinalModel_OnlyB_GoodInit
+    ("i8kkltwu", "model-best", "FinalModel_TrainAll_GoodInit", 1062),
+    ("gx9gpizs", "model-best", "FinalModel_FreezeGDNGamma_GoodInit", 1060),
+    ("c9u2vqjz", "model-best", "FinalModel_FreezeJH_GoodInit", 1051),
+    ("2aae1qvd", "model-best", "FinalModel_Freeze_GDNColor_GoodInit", 1045),
+    ("f8uv6afu", "model-best", "FinalModel_Freeze_CS_GoodInit", 1018),
+    ("3r2slksi", "model-best", "FinalModel_Freeze_GDNGaussian_GoodInit", 1009),
+    ("k24dfyo8", "model-best", "FinalModel_GDNFinalOnly_GoodInit", 553),
+    ("csrhdpbd", "model-best", "FinalModel_OnlyB_GoodInit", 128),
+    ("csrhdpbd", "model-0", "FinalModel_FullyFrozen", 0),
 ]
 
 
@@ -179,12 +189,6 @@ def main():
         type=str,
         default="Jorgvt/PerceptNet_v15",
         help="W&B project name",
-    )
-    parser.add_argument(
-        "--run_ids",
-        nargs="+",
-        default=DEFAULT_PROGRESSIVE_IDS,
-        help="List of progressive freezing run IDs",
     )
     parser.add_argument(
         "--predictions_dir",
@@ -229,33 +233,33 @@ def main():
     )
 
     ckptr = orbax.checkpoint.PyTreeCheckpointer()
-
-    # 2. Query W&B API for runs
     api = wandb.Api()
-    print(f"Fetching {len(args.run_ids)} progressive freezing runs from W&B project '{args.project}'...")
-    runs = [api.run(f"{args.project}/{run_id}") for run_id in args.run_ids]
 
     results = []
 
-    for run in runs:
-        run_id = run.id
+    for run_id, ckpt_name, stage_name, n_params in DEFAULT_PROGRESSIVE_IDS:
+        print(f"\n=======================================================")
+        print(f"Evaluating: {stage_name} (Run ID: {run_id}, Checkpoint: {ckpt_name}, Params: {n_params})")
+        print(f"=======================================================")
+
+        run = api.run(f"{args.project}/{run_id}")
         run_name = run.name
 
-        ckpt_name = "model-best"
         checkpoint_dir = None
+        ckpt_local_tag = f"{run_id}_{ckpt_name.replace('-', '_')}"
 
         # Download checkpoint from W&B
-        files = [f for f in run.files() if f.name.startswith(f"{ckpt_name}/")]
+        files = [f for f in run.files() if f.name.startswith(f"{ckpt_name}/") or f.name.startswith(f"repaired_checkpoints/repaired/{run_id}/{ckpt_name}/")]
         if len(files) > 0:
-            checkpoint_dir = f"wandb_checkpoints/{run_id}/{ckpt_name}"
-            print(f"\nDownloading checkpoint {ckpt_name} for run: {run_name} (ID: {run_id}) from W&B...")
+            checkpoint_dir = f"wandb_checkpoints/{ckpt_local_tag}/{ckpt_name}"
+            print(f"Downloading checkpoint {ckpt_name} for run: {run_name} (ID: {run_id}) from W&B...")
             for f in files:
-                f.download(root=f"wandb_checkpoints/{run_id}", replace=True)
+                f.download(root=f"wandb_checkpoints/{ckpt_local_tag}", replace=True)
         else:
             local_runs = glob.glob(f"wandb/run-*-{run_id}/files/{ckpt_name}/checkpoint")
             if len(local_runs) > 0:
                 checkpoint_dir = os.path.dirname(local_runs[0])
-                print(f"\nUsing local checkpoint for run {run_name} (ID: {run_id}) at: {checkpoint_dir}")
+                print(f"Using local checkpoint for run {run_name} (ID: {run_id}) at: {checkpoint_dir}")
 
         if not checkpoint_dir:
             print(f"Checkpoint not found for run {run_name} (ID: {run_id}). Skipping...")
@@ -298,24 +302,27 @@ def main():
                         }
                     )
 
-            # Evaluate datasets
+            # Re-evaluate TID2008, TID2013, and KADIK10K
+            print("  Evaluating TID2008...")
             tid08_corr, tid08_dists, tid08_mos = evaluate_dataset_predictions(
                 aligned_state, dst_tid08_rdy
             )
+            print(f"  - TID2008 Pearson: {tid08_corr:.5f}")
+
+            print("  Evaluating TID2013...")
             tid13_corr, tid13_dists, tid13_mos = evaluate_dataset_predictions(
                 aligned_state, dst_tid13_rdy
             )
+            print(f"  - TID2013 Pearson: {tid13_corr:.5f}")
+
+            print("  Evaluating KADIK10K...")
             kad_corr, kad_dists, kad_mos = evaluate_dataset_predictions(
                 aligned_state, dst_kad_rdy
             )
-
-            print(f"[{run_name}]")
-            print(f"  - TID2008 Pearson: {tid08_corr:.5f}")
-            print(f"  - TID2013 Pearson: {tid13_corr:.5f}")
             print(f"  - KADIK10K Pearson: {kad_corr:.5f}")
 
             # Save per-pair predictions to local CSV files
-            run_pred_dir = os.path.join(args.predictions_dir, run_id)
+            run_pred_dir = os.path.join(args.predictions_dir, ckpt_local_tag)
             os.makedirs(run_pred_dir, exist_ok=True)
 
             df_tid08_pred = pd.DataFrame({
@@ -342,35 +349,33 @@ def main():
             df_tid13_pred.to_csv(tid13_csv_path, index=False)
             df_kad_pred.to_csv(kad_csv_path, index=False)
 
-            # Upload CSVs to W&B
             if args.upload_to_wandb:
-                try:
-                    print(f"  - Uploading prediction CSVs to W&B for run {run_id}...")
-                    run.upload_file(tid08_csv_path)
-                    run.upload_file(tid13_csv_path)
-                    run.upload_file(kad_csv_path)
-                    print("  - Upload complete.")
-                except Exception as e:
-                    print(f"  - Warning: Failed to upload CSVs to W&B for run {run_id}: {e}")
+                print(f"  Uploading prediction CSVs to W&B for run {run_id} ({ckpt_name})...")
+                run.upload_file(tid08_csv_path, root=args.predictions_dir)
+                run.upload_file(tid13_csv_path, root=args.predictions_dir)
+                run.upload_file(kad_csv_path, root=args.predictions_dir)
+                print("  Upload complete.")
 
             results.append({
-                "Run ID": run_id,
-                "Run Name": run_name,
-                "Trainable Params": run.summary.get("trainable_parameters", np.nan),
-                "TID2008 Correlation": f"{tid08_corr:.5f}",
-                "TID2013 Correlation": f"{tid13_corr:.5f}",
-                "KADID10K Correlation": f"{kad_corr:.5f}",
+                "run_id": run_id,
+                "checkpoint": ckpt_name,
+                "stage_name": stage_name,
+                "trainable_parameters": n_params,
+                "tid2008_corr": tid08_corr,
+                "tid2013_corr": tid13_corr,
+                "kadik10k_corr": kad_corr,
             })
 
         except Exception as e:
-            print(f"Error processing run {run_id}: {e}")
+            print(f"Error processing run {run_id} ({ckpt_name}): {e}")
+            import traceback
+            traceback.print_exc()
 
-    # 3. Print and Save summary
-    if len(results) > 0:
-        df = pd.DataFrame(results)
-        print("\n=== Summary Table ===")
-        print(df.to_string(index=False))
-        df.to_csv("Plotting/progressive_freezing_correlations.csv", index=False)
+    df_results = pd.DataFrame(results)
+    out_csv = "Plotting/progressive_freezing_evaluation_extended.csv"
+    df_results.to_csv(out_csv, index=False)
+    print(f"\nSaved evaluation summary table to: {out_csv}")
+    print(df_results.to_string(index=False))
 
 
 if __name__ == "__main__":
